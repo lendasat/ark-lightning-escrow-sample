@@ -1,0 +1,17 @@
+{
+  "name": "escrow-sample",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "happy-path": "tsx src/happy-path.ts"
+  },
+  "dependencies": {
+    "@arkade-os/sdk": "^0.3.12",
+    "@scure/base": "^1.2.4"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}
