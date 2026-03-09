@@ -10,195 +10,170 @@ and withdraws directly on Arkade, making it immediately testable against regtest
 
 1. Alice and Bob agree to swap bitcoin for an ERC20 token.
 2. HodlHodl creates a **2-of-3 escrow contract** on Arkade (Alice, Bob, HodlHodl as arbiter).
-3. Alice funds the escrow with bitcoin on Arkade (boarding output → settle → offchain tx to escrow address).
-4. Bob sends the ERC20 token to Alice on Ethereum (simulated — console log).
-5. HodlHodl attests the token transfer, co-signs with Bob to **release** the escrow.
+3. Alice funds the escrow — she already has Arkade BTC (test setup), sends to escrow address.
+4. Bob sends the ERC20 token to Alice on Ethereum (simulated — state change in HodlHodl).
+5. HodlHodl attests the token transfer, orchestrates the release: builds offchain tx,
+   collects Bob's signature, adds its own, submits to Arkade, finalizes.
 6. Bob receives the bitcoin to his Arkade address.
 
-Lightning swap integration (Lendaswap LN↔Arkade) is a follow-up commit once
-that feature lands.
+Lightning swap integration (Lendaswap LN↔Arkade) is a follow-up commit.
 
 ## Escrow Contract Design
 
-**2-of-3 multisig**: any 2 of {Alice, Bob, HodlHodl} can spend. The Arkade
-server participates at the protocol level (checkpoint signing, batch settlement)
-but is not a signer in the escrow condition scripts.
+**2-of-3 multisig**: any 2 of {Alice, Bob, HodlHodl} can spend.
 
-The escrow VTXO uses `Vtxo::new_with_custom_scripts` (Rust) /
-`VtxoScript` (TS) with **owner = arbiter (HodlHodl)**, since HodlHodl is
-trusted and is the natural signer for the built-in forfeit and exit paths.
+Uses the exact same script structure as `escrow-sample.rs` (from the lending
+project), with renamed parties: borrower→alice, lender→bob, hub→hodlhodl.
 
-### Taproot Leaves
+No dedicated forfeit branch — any leaf involving the Arkade server can be used
+to forfeit.
 
-Built-in (added by `Vtxo::new_with_custom_scripts` / `VtxoScript`):
+### Taproot Leaves (6 total)
 
-| Leaf | Script | Purpose |
-|------|--------|---------|
-| F | `ArkServer + HodlHodl` | Forfeit (protocol-level, prevents double-spend) |
-| E | `CSV(exit_delay) + HodlHodl` | Unilateral exit (on-chain fallback) |
-
-Custom (our escrow scripts):
+**Collaborative** (include `server_pk`, usable for offchain spend & forfeit):
 
 | Leaf | Script | Purpose |
 |------|--------|---------|
-| 1 | `Alice + Bob` (2-of-2 multisig) | Mutual settlement, no arbiter needed |
-| 2 | `Alice + HodlHodl` (2-of-2 multisig) | Arbiter-assisted refund to Alice |
-| 3 | `Bob + HodlHodl` (2-of-2 multisig) | Arbiter-assisted release to Bob **(happy path)** |
-| 4 | `CLTV(timeout) + Alice` | Safety net: funder recovers if escrow never resolves |
+| 1 | `alice + hodlhodl + server` | Arbiter-assisted refund to Alice |
+| 2 | `bob + hodlhodl + server` | Arbiter-assisted release to Bob **(happy path)** |
+| 3 | `alice + bob + server` | Mutual settlement, no arbiter needed |
 
-## Reference Implementations
+**Unilateral** (CSV delay, no server — for on-chain exit):
 
-- **Rust offchain tx flow**: `ark-rs/e2e-tests/tests/dlc_common/mod.rs` — shows
-  `Vtxo::new_with_custom_scripts`, `build_offchain_transactions`, `sign_ark_transaction`,
-  `sign_checkpoint_transaction`, `submit_offchain_transaction_request`,
-  `finalize_offchain_transaction`.
-- **TS SDK building blocks**: `@arkade-os/sdk` — `VtxoScript`, `VHTLC.Script`,
-  `MultisigTapscript`, `CLTVMultisigTapscript`, `buildOffchainTx`,
-  `combineTapscriptSigs`.
-- **PSBT exchange**: `ark-rs/ark-client/src/boltz.rs` — shows how to exchange
-  partially-signed PSBTs between parties (Boltz signs, client co-signs, submits
-  to Arkade).
+| Leaf | Script | Purpose |
+|------|--------|---------|
+| 4 | `CSV + alice + hodlhodl` | Unilateral refund (arbiter + alice agree) |
+| 5 | `CSV + bob + hodlhodl` | Unilateral release (arbiter + bob agree) |
+| 6 | `CSV + alice + bob` | Unilateral mutual settlement |
+
+No built-in forfeit/exit paths from `Vtxo::new_with_custom_scripts` — the
+taproot tree is built manually (as in `escrow-sample.rs`).
 
 ## Architecture
 
+HodlHodl orchestrates everything. Clients (Alice, Bob) only sign PSBTs.
+
 ```
- Alice (TS)               HodlHodl (Ruby)              Bob (TS)                 Arkade
-   │                          │                          │                         │
-   │── create trade ─────────▶│◀── create trade ─────────│                         │
-   │   (alice_pk)             │    (bob_pk)              │                         │
-   │                          │                          │                         │
-   │                    derive escrow address             │                         │
-   │                   (escrow crate via Magnus)          │                         │
-   │◀── escrow addr ──────────│──── escrow addr ────────▶│                         │
-   │                          │                          │                         │
-   │── board btc ────────────────────────────────────────────────────────────────▶│
-   │── settle to escrow addr ────────────────────────────────────────────────────▶│
-   │                          │                          │                         │
-   │       ···················· Bob sends ERC20 (simulated) ·····················│
-   │                          │                          │                         │
-   │                    attest trade OK                   │                         │
-   │                          │                          │                         │
-   │                          │◀─ request release ───────│                         │
-   │                          │   (bob_pk, dest_addr)    │                         │
-   │                          │                          │                         │
-   │                    build offchain tx                 │                         │
-   │                    sign ark_tx (arbiter key)         │                         │
-   │                          │                          │                         │
-   │                          │── partial PSBT ─────────▶│                         │
-   │                          │                          │                         │
-   │                          │                  co-sign ark_tx (bob key)          │
-   │                          │                  submit offchain tx ──────────────▶│
-   │                          │                  ◀── server-signed checkpoints ───│
-   │                          │                          │                         │
-   │                          │◀── checkpoint PSBT ──────│                         │
-   │                          │    (needs arbiter sig)   │                         │
-   │                          │                          │                         │
-   │                    sign checkpoint (arbiter key)     │                         │
-   │                          │── signed checkpoint ────▶│                         │
-   │                          │                          │                         │
-   │                          │                  co-sign checkpoint (bob key)      │
-   │                          │                  finalize ────────────────────────▶│
-   │                          │                          │                         │
-   │                          │                     Bob now has VTXO ✓             │
+ Alice (TS)               HodlHodl (Ruby + Rust/Magnus)              Bob (TS)
+   │                          │                                        │
+   │── create trade ─────────▶│◀── create trade ──────────────────────│
+   │   (alice_pk)             │    (bob_pk)                           │
+   │                          │                                        │
+   │                    derive escrow address                          │
+   │                    (Rust escrow crate via Magnus)                 │
+   │                    connect to Arkade (ark-grpc/rest via Magnus)   │
+   │◀── escrow addr ──────────│──── escrow addr ─────────────────────▶│
+   │                          │                                        │
+   │── send to escrow addr ──▶│ (Alice uses her Arkade wallet)        │
+   │   (Alice has VTXOs)   [Arkade]                                   │
+   │                          │                                        │
+   │                    "Bob sends ERC20" (state change)               │
+   │                          │                                        │
+   │                    === RELEASE FLOW (all via Rust/Magnus) ===     │
+   │                          │                                        │
+   │                    1. build offchain tx                           │
+   │                       (escrow VTXO → bob's ark addr)             │
+   │                          │                                        │
+   │                    2. send ark_tx PSBT to Bob ──────────────────▶│
+   │                          │                                        │
+   │                          │◀── bob signs ark_tx, returns ─────────│
+   │                          │                                        │
+   │                    3. add arbiter sig to ark_tx                   │
+   │                    4. submit to Arkade server                    │
+   │                       → server validates, returns                │
+   │                         server-signed checkpoints                │
+   │                          │                                        │
+   │                    5. send checkpoint PSBT to Bob ──────────────▶│
+   │                          │                                        │
+   │                          │◀── bob signs checkpoint, returns ─────│
+   │                          │                                        │
+   │                    6. add arbiter sig to checkpoint               │
+   │                    7. finalize with Arkade                       │
+   │                          │                                        │
+   │                    Bob now has VTXO ✓                             │
 ```
-
-## Signing Protocol (PSBT Exchange)
-
-For escrow release (leaf 3: Bob + HodlHodl):
-
-1. **Bob** builds the offchain transaction (ark_tx + checkpoints) spending the
-   escrow VTXO to Bob's Arkade address.
-2. **Bob** requests release from HodlHodl API, sending the unsigned ark_tx.
-3. **HodlHodl** verifies conditions, signs the ark_tx with arbiter key,
-   returns the partially-signed PSBT.
-4. **Bob** adds his signature to the ark_tx (now fully signed for the 2-of-2 leaf).
-5. **Bob** submits to Arkade via `submit_offchain_transaction_request`.
-6. **Arkade** validates signatures, returns server-signed checkpoint PSBTs.
-7. **Bob** sends checkpoint PSBTs to HodlHodl for co-signing.
-8. **HodlHodl** signs checkpoints with arbiter key, returns.
-9. **Bob** co-signs checkpoints with his key.
-10. **Bob** calls `finalize_offchain_transaction`.
-
-Arkade uses a baseX-encoded PSBT format for the wire protocol.
 
 ## Deliverables
 
 ### 1. `escrow/` — Rust library crate (this repo)
 
-Pure Rust escrow logic. Depends on `ark-core = "0.8.0"` from crates.io.
-Follows the patterns from the DLC e2e test.
+Escrow contract (scripts, address) + Arkade integration (build offchain txs,
+submit, finalize). Depends on `ark-core` and `ark-grpc` from crates.io.
 
 ```
 escrow/
 ├── Cargo.toml
 └── src/
     ├── lib.rs
-    ├── contract.rs     # EscrowOptions → scripts → Vtxo → ArkAddress
-    └── spend.rs        # Build + sign offchain txs for release/refund
+    ├── contract.rs     # EscrowOptions → 6 taproot scripts → ArkAddress
+    │                   # (port of escrow-sample.rs with renamed parties)
+    ├── spend.rs        # Build offchain txs, sign ark_tx/checkpoints
+    └── client.rs       # Arkade server interaction: submit, finalize, list VTXOs
 ```
 
-**Key types:**
+**Key types (contract.rs):**
 
 ```rust
 pub struct EscrowOptions {
-    pub alice: XOnlyPublicKey,     // funder
-    pub bob: XOnlyPublicKey,       // recipient
+    pub alice: XOnlyPublicKey,
+    pub bob: XOnlyPublicKey,
     pub arbiter: XOnlyPublicKey,   // HodlHodl
-    pub refund_timeout: u32,       // CLTV block height for safety refund
+    pub server: XOnlyPublicKey,    // Arkade server
+    pub unilateral_exit_delay: Sequence,
 }
 
-pub struct EscrowContract {
-    options: EscrowOptions,
-    vtxo: Vtxo,                    // from Vtxo::new_with_custom_scripts
-}
+pub struct EscrowContract { /* options, TaprootSpendInfo, network */ }
 
 impl EscrowContract {
-    /// Create escrow. `server_info` provides ark server pk, exit delay, network.
-    pub fn new(opts: EscrowOptions, server_info: &ServerInfo) -> Result<Self>;
-
+    pub fn new(opts: EscrowOptions, network: Network) -> Result<Self>;
     pub fn address(&self) -> ArkAddress;
-    pub fn vtxo(&self) -> &Vtxo;
+    pub fn tapscripts(&self) -> Vec<ScriptBuf>;
 
-    // The 4 custom scripts
-    pub fn mutual_script(&self) -> ScriptBuf;     // Alice + Bob
-    pub fn refund_script(&self) -> ScriptBuf;     // Alice + HodlHodl
-    pub fn release_script(&self) -> ScriptBuf;    // Bob + HodlHodl
-    pub fn timeout_script(&self) -> ScriptBuf;    // CLTV + Alice
+    // Collaborative leaves (with server)
+    pub fn alice_arbiter_script(&self) -> ScriptBuf;   // refund
+    pub fn bob_arbiter_script(&self) -> ScriptBuf;     // release (happy path)
+    pub fn alice_bob_script(&self) -> ScriptBuf;       // mutual
+
+    // Unilateral leaves (CSV, no server)
+    pub fn unilateral_alice_arbiter_script(&self) -> ScriptBuf;
+    pub fn unilateral_bob_arbiter_script(&self) -> ScriptBuf;
+    pub fn unilateral_alice_bob_script(&self) -> ScriptBuf;
 }
+```
 
-/// Build a VtxoInput for spending the escrow via a given leaf.
-pub fn escrow_vtxo_input(
-    contract: &EscrowContract,
-    leaf: EscrowLeaf,
-    outpoint: OutPoint,
-    amount: Amount,
-) -> Result<VtxoInput>;
+**Spend orchestration (spend.rs + client.rs):**
 
-/// Sign an ark_tx PSBT for one party's key.
-pub fn sign_escrow_ark_tx(
-    keypair: &Keypair,
-    ark_tx: &mut Psbt,
-    input_index: usize,
-) -> Result<()>;
+```rust
+/// Full release flow — HodlHodl calls this.
+/// 1. Find escrow VTXO on Arkade
+/// 2. Build offchain tx (escrow → bob_dest_addr)
+/// 3. Return ark_tx PSBT for Bob to sign
+pub fn build_release_tx(...) -> Result<Psbt>;
 
-/// Sign a checkpoint PSBT for one party's key.
-pub fn sign_escrow_checkpoint(
-    keypair: &Keypair,
-    checkpoint: &mut Psbt,
-) -> Result<()>;
+/// After collecting Bob's sig:
+/// 4. Add arbiter sig to ark_tx
+/// 5. Submit to Arkade → get server-signed checkpoints
+/// 6. Return checkpoint PSBT for Bob to sign
+pub async fn submit_release_tx(...) -> Result<Vec<Psbt>>;
+
+/// After collecting Bob's checkpoint sig:
+/// 7. Add arbiter sig to checkpoint
+/// 8. Finalize with Arkade
+pub async fn finalize_release_tx(...) -> Result<Txid>;
 ```
 
 ### 2. `ruby-ext/` — Magnus bindings (this repo)
 
-Wraps `escrow/` for the HodlHodl Ruby backend.
+Wraps everything from `escrow/` for Ruby. Uses `tokio::Runtime::block_on`
+for async Arkade calls.
 
 ```
 ruby-ext/
-├── Cargo.toml           # cdylib, depends on escrow + magnus + serde_magnus
+├── Cargo.toml           # cdylib, depends on escrow + magnus
 ├── src/
 │   └── lib.rs           # #[magnus::init] — Ruby classes
 ├── lib/
-│   └── ark_escrow.rb    # Ruby require shim
+│   └── ark_escrow.rb
 ├── Gemfile
 ├── Rakefile
 └── ark_escrow.gemspec
@@ -207,121 +182,134 @@ ruby-ext/
 **Ruby API:**
 
 ```ruby
+# Connect to Arkade
+client = ArkEscrow::Client.new(arkade_url: "http://localhost:7070")
+
+# Create escrow contract
 contract = ArkEscrow::Contract.new(
-  alice_pk: "ab12...",
-  bob_pk: "cd34...",
-  arbiter_pk: "ef56...",
-  ark_server_pk: "...",
-  exit_delay: 512,
-  refund_timeout: 850_000,
+  alice_pk: "...", bob_pk: "...", arbiter_pk: "...",
+  server_pk: client.server_pk,
+  unilateral_exit_delay: 512,
   network: "regtest"
 )
-
 contract.address  # => "tark1q..."
 
-# Sign ark_tx PSBT (arbiter side)
-signed_psbt = contract.sign_ark_tx(
-  psbt_base64: "...",
-  arbiter_secret_key: "...",
-  input_index: 0
+# Step 1: Build release tx → PSBT for Bob to sign
+release_psbt = client.build_release(
+  contract: contract,
+  arbiter_sk: "...",
+  bob_dest_address: "tark1q...",
 )
 
-# Sign checkpoint PSBT (arbiter side)
-signed_checkpoint = contract.sign_checkpoint(
-  psbt_base64: "...",
-  arbiter_secret_key: "..."
+# Step 2: After Bob signs, submit → checkpoint PSBTs for Bob to sign
+checkpoint_psbts = client.submit_release(
+  release_psbt: bob_signed_psbt,  # Bob's sig merged in
+  arbiter_sk: "...",
+)
+
+# Step 3: After Bob signs checkpoints, finalize
+txid = client.finalize_release(
+  checkpoint_psbts: bob_signed_checkpoints,
+  arbiter_sk: "...",
 )
 ```
 
 ### 3. Lendaswap TS SDK `escrow/` module (in lendaswap2 repo)
 
-New module in `client-sdk/ts-pure-sdk/src/escrow/`, extending `VtxoScript`
-from `@arkade-os/sdk` — same pattern as `VHTLC.Script`.
+Minimal client-side module — clients only sign PSBTs, HodlHodl orchestrates.
 
 ```
-src/escrow/
+client-sdk/ts-pure-sdk/src/escrow/
 ├── index.ts
-├── types.ts          # EscrowOptions, EscrowLeaf
-├── script.ts         # EscrowScript extends VtxoScript (address derivation, leaf selection)
-├── release.ts        # Build offchain tx, coordinate signing with arbiter API
-└── refund.ts         # Same for refund path
+├── types.ts          # EscrowOptions
+├── script.ts         # EscrowScript extends VtxoScript (address derivation, verification)
+└── sign.ts           # Sign ark_tx / checkpoint PSBTs (Bob/Alice side)
 ```
 
 **TS API:**
 
 ```typescript
-import { VtxoScript, MultisigTapscript } from "@arkade-os/sdk";
+// Verify escrow address independently
+const escrow = new EscrowScript({
+  alice: alicePk, bob: bobPk, arbiter: arbiterPk,
+  server: serverPk, unilateralExitDelay: { type: "blocks", value: 512n },
+});
+const address = escrow.address("tark", serverPk);
 
-class EscrowScript extends VtxoScript {
-  constructor(options: EscrowOptions);
+// Sign ark_tx PSBT from HodlHodl (Bob side)
+const signed = signArkTx(psbt, bobKeypair, escrow.release());
 
-  // Leaf accessors (return TapLeafScript for signing)
-  mutual(): TapLeafScript;     // Alice + Bob
-  refund(): TapLeafScript;     // Alice + HodlHodl
-  release(): TapLeafScript;    // Bob + HodlHodl
-  timeout(): TapLeafScript;    // CLTV + Alice
-
-  address(prefix: string, serverPubKey: Bytes): ArkAddress;
-}
-
-// Release flow — Bob side
-async function release(params: {
-  arkServerUrl: string;
-  hodlhodlApiUrl: string;
-  tradeId: string;
-  escrow: EscrowScript;
-  bobKeypair: Keypair;
-  destAddress: ArkAddress;
-  vtxoOutpoint: Outpoint;
-  amount: bigint;
-}): Promise<string>;  // txid
+// Sign checkpoint PSBT from HodlHodl (Bob side)
+const signedCheckpoint = signCheckpoint(psbt, bobKeypair, escrow.release());
 ```
 
 ### 4. `sample/` — End-to-end happy path (this repo)
 
-TypeScript script that runs against a Ruby backend and Arkade regtest.
+TypeScript script + Ruby server, run against Arkade regtest.
 
 ```
 sample/
 ├── package.json
 ├── tsconfig.json
-└── src/
-    ├── happy-path.ts        # Orchestrates full flow
-    └── hodlhodl-server.rb   # Sinatra/Rack mock using ark_escrow gem
+├── src/
+│   └── happy-path.ts        # Alice sends to escrow, Bob signs release
+└── server/
+    └── hodlhodl.rb           # Sinatra app using ark_escrow gem
 ```
-
-The TS script acts as **both Alice and Bob**, calling the Ruby HodlHodl
-server and Arkade directly.
 
 ### 5. HodlHodl Mock REST API (Ruby, in sample)
 
-Uses the `ark_escrow` Magnus gem. Sinatra app.
+Thin Sinatra app — all crypto/Arkade logic via Magnus gem.
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `POST /trades` | Create | `{ alice_pk, bob_pk }` → `{ trade_id, escrow_address }` |
 | `GET /trades/:id` | Read | Trade status, escrow address |
-| `POST /trades/:id/attest` | Attest | Mark ERC20 as sent |
-| `POST /trades/:id/sign-release` | Sign | Takes ark_tx PSBT, returns arbiter-signed PSBT |
-| `POST /trades/:id/sign-checkpoint` | Sign | Takes checkpoint PSBT, returns arbiter-signed checkpoint |
+| `POST /trades/:id/attest` | Attest | Mark ERC20 as sent, advance state |
+| `POST /trades/:id/release` | Release | Build ark_tx → `{ psbt }` for Bob to sign |
+| `POST /trades/:id/release/submit` | Submit | Bob's signed PSBT → submit to Arkade → `{ checkpoint_psbts }` |
+| `POST /trades/:id/release/finalize` | Finalize | Bob's signed checkpoints → finalize → `{ txid }` |
 
 ## Execution Order
 
-1. **`escrow/`** — Rust crate with unit tests (address derivation, script generation).
-   Reference: `ark-core`'s `Vtxo::new_with_custom_scripts`, `multisig_script`, `csv_sig_script`.
-2. **`ruby-ext/`** — Magnus bindings. Test from Ruby.
+1. **`escrow/`** — Rust crate. Port `escrow-sample.rs` scripts, add offchain tx
+   building and Arkade client integration. Unit tests for address derivation.
+2. **`ruby-ext/`** — Magnus bindings with tokio runtime. Test from Ruby.
 3. **TS SDK `escrow/` module** — In `lendaswap2/client-sdk/ts-pure-sdk/src/escrow/`.
-   Reference: `@arkade-os/sdk`'s `VtxoScript`, `VHTLC.Script`.
+   `EscrowScript` extending `VtxoScript`, signing helpers.
 4. **`sample/`** — Ruby server + TS happy path script, run against regtest.
 5. **Follow-up** — Replace direct Arkade funding with Lendaswap LN↔Arkade swaps.
+
+## Dev Environment
+
+`flake.nix` at repo root provides all tooling:
+
+- **Rust** (stable, ≥1.86 for ark-core) + nightly rustfmt
+- **Ruby 3.3** + bundler (for Magnus gem / HodlHodl mock)
+- **Node 22** + pnpm (for TS sample client)
+- **just** (task runner)
 
 ## Dependencies
 
 | Component | Dependency | Source |
 |-----------|-----------|--------|
 | `escrow/` | `ark-core = "0.8.0"` | crates.io |
-| `ruby-ext/` | `magnus = "0.8"` | crates.io |
+| `escrow/` | `ark-grpc` or `ark-rest` | crates.io |
+| `ruby-ext/` | `magnus = "0.8"`, `tokio` | crates.io |
 | TS SDK module | `@arkade-os/sdk = "^0.3.12"` | npm |
-| TS SDK module | `@scure/btc-signer` | npm (already a dep) |
-| Sample (TS) | `@lendasat/lendaswap-sdk-pure` | local/npm |
+| Sample (TS) | `@lendasat/lendaswap-sdk-pure` | **path dep**: `../lendaswap2/client-sdk/ts-pure-sdk` |
 | Sample (Ruby) | `ark_escrow` gem | local build |
+
+### TS SDK path linking
+
+The Lendaswap TS SDK escrow module is developed in
+`../lendaswap2/client-sdk/ts-pure-sdk/src/escrow/`. The sample's
+`package.json` uses a path dependency to link it:
+
+```json
+{
+  "dependencies": {
+    "@lendasat/lendaswap-sdk-pure": "file:../lendaswap2/client-sdk/ts-pure-sdk"
+  }
+}
+```
