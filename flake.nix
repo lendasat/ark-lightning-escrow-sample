@@ -31,6 +31,7 @@
             pkg-config
             openssl
             gcc
+            llvmPackages.libclang
 
             # Ruby
             ruby_3_3
@@ -43,6 +44,9 @@
             # Tools
             just
           ];
+
+          LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
+          BINDGEN_EXTRA_CLANG_ARGS = "-isystem ${pkgs.glibc.dev}/include -isystem ${pkgs.llvmPackages.libclang.lib}/lib/clang/${pkgs.llvmPackages.libclang.version}/include";
 
           RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
         };
