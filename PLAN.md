@@ -20,7 +20,10 @@ Lightning swap integration (Lendaswap LN↔Arkade) is a follow-up commit.
 
 ## Escrow Contract Design
 
-**2-of-3 multisig**: any 2 of {Alice, Bob, HodlHodl} can spend.
+**2-of-3 multisig**: any 2 of {Alice, Bob, HodlHodl} can spend. The Arkade
+server signature is implicit in collaborative paths (the server co-signs as
+part of the offchain transaction protocol). Unilateral paths use CSV delay
+instead of the server, allowing on-chain exit without server cooperation.
 
 Uses the exact same script structure as `escrow-sample.rs` (from the lending
 project), with renamed parties: borrower→alice, lender→bob, hub→hodlhodl.
@@ -48,6 +51,12 @@ to forfeit.
 
 No built-in forfeit/exit paths from `Vtxo::new_with_custom_scripts` — the
 taproot tree is built manually (as in `escrow-sample.rs`).
+
+### Validation
+
+`EscrowOptions::validate` must check:
+- All public keys are valid and distinct
+- `unilateral_exit_delay` is a valid non-zero CSV relative lock time
 
 ## Architecture
 
@@ -146,7 +155,9 @@ impl EscrowContract {
 ```rust
 /// Full release flow — HodlHodl calls this.
 /// 1. Find escrow VTXO on Arkade
-/// 2. Build offchain tx (escrow → bob_dest_addr)
+/// 2. Build offchain tx with two outputs:
+///    - Bob's payout (escrow amount minus fee)
+///    - HodlHodl's fee output
 /// 3. Return ark_tx PSBT for Bob to sign
 pub fn build_release_tx(...) -> Result<Psbt>;
 
@@ -161,6 +172,15 @@ pub async fn submit_release_tx(...) -> Result<Vec<Psbt>>;
 /// 8. Finalize with Arkade
 pub async fn finalize_release_tx(...) -> Result<Txid>;
 ```
+
+**Fee policy**: On release, the offchain tx produces two outputs — Bob's
+payout and a fee output to HodlHodl's Arkade address. No change output
+(always full release of escrow amount). Dust threshold is Arkade
+server-mandated. On refund, no fee output — full amount returns to Alice.
+
+**Checkpoint handling**: Match returned checkpoint PSBTs by txid (not index).
+Restore `witness_script` if stripped by server. Merge `tap_script_sigs`
+maps when combining partial signatures.
 
 ### 2. `ruby-ext/` — Magnus bindings (this repo)
 
@@ -261,14 +281,17 @@ sample/
 
 Thin Sinatra app — all crypto/Arkade logic via Magnus gem.
 
+**Trade states**: `created` → `funded` → `attested` → `releasing` → `completed`
+
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `POST /trades` | Create | `{ alice_pk, bob_pk }` → `{ trade_id, escrow_address }` |
+| `POST /trades` | Create | `{ alice_pk, bob_pk }` → `{ trade_id, escrow_address, status: "created" }` |
 | `GET /trades/:id` | Read | Trade status, escrow address |
-| `POST /trades/:id/attest` | Attest | Mark ERC20 as sent, advance state |
-| `POST /trades/:id/release` | Release | Build ark_tx → `{ psbt }` for Bob to sign |
+| `POST /trades/:id/fund` | Fund | Mark escrow as funded (Alice confirms) → `status: "funded"` |
+| `POST /trades/:id/attest` | Attest | Mark ERC20 as sent → `status: "attested"` |
+| `POST /trades/:id/release` | Release | Build ark_tx → `{ psbt, status: "releasing" }` for Bob to sign |
 | `POST /trades/:id/release/submit` | Submit | Bob's signed PSBT → submit to Arkade → `{ checkpoint_psbts }` |
-| `POST /trades/:id/release/finalize` | Finalize | Bob's signed checkpoints → finalize → `{ txid }` |
+| `POST /trades/:id/release/finalize` | Finalize | Bob's signed checkpoints → finalize → `{ txid, status: "completed" }` |
 
 ## Execution Order
 
@@ -279,6 +302,26 @@ Thin Sinatra app — all crypto/Arkade logic via Magnus gem.
    `EscrowScript` extending `VtxoScript`, signing helpers.
 4. **`sample/`** — Ruby server + TS happy path script, run against regtest.
 5. **Follow-up** — Replace direct Arkade funding with Lendaswap LN↔Arkade swaps.
+
+## Known Limitations / TODOs
+
+- **Pending tx recovery**: If the process crashes between submit and finalize,
+  the offchain tx is stuck. Production systems need reconciliation logic
+  (see `boltz.rs` `continue_pending_vhtlc_spend_txs`). Out of scope for this
+  showcase.
+- **Client-side PSBT verification**: Bob/Alice should verify script path,
+  destination address, and amount before signing. TODO for production.
+- **Dispute/refund flow**: Only the happy path (release) is implemented. Refund
+  (Alice + HodlHodl) and mutual settlement (Alice + Bob) paths follow the same
+  pattern — TODO.
+- **Unilateral exit**: CSV-delayed on-chain paths are defined but not exercised
+  in the sample.
+- **Address verification**: Clients currently trust HodlHodl's escrow address.
+  The TS SDK provides `EscrowScript` for independent verification — TODO to
+  wire up.
+- **Cross-language tree determinism**: Taproot tree construction must match
+  between Rust and TS. For now, HodlHodl server (Rust) is the authority for
+  address derivation.
 
 ## Dev Environment
 
