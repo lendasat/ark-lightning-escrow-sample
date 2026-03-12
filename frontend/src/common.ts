@@ -1,4 +1,4 @@
-const HODLHODL_URL = "http://localhost:4567";
+const HODLHODL_URL = import.meta.env.VITE_HODLHODL_URL ?? "http://localhost:4567";
 
 export async function api(
   method: string,

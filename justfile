@@ -29,8 +29,12 @@ install:
 
 # --- Demo environment ---
 # Requires: nigiri + arkd + fulmine running (regtest stack)
+# Override with env vars: ARKADE_URL, HODLHODL_PORT, FRONTEND_PORT, ARBITER_SK
 
-ARBITER_SK := "0000000000000000000000000000000000000000000000000000000000000001"
+ARKADE_URL   := env("ARKADE_URL", "http://localhost:7070")
+HODLHODL_PORT := env("HODLHODL_PORT", "4567")
+FRONTEND_PORT := env("FRONTEND_PORT", "3001")
+ARBITER_SK   := env("ARBITER_SK", "0000000000000000000000000000000000000000000000000000000000000001")
 
 # Start the Ruby server + frontend (background)
 up: build-ruby
@@ -38,20 +42,26 @@ up: build-ruby
     just down 2>/dev/null || true
     echo "Starting Ruby server..."
     cd sample/server && bundle install --quiet
-    cd sample/server && ARBITER_SK={{ARBITER_SK}} bundle exec ruby hodlhodl.rb -o 127.0.0.1 -p 4567 > /tmp/hodlhodl.log 2>&1 &
+    cd sample/server && \
+      ARBITER_SK={{ARBITER_SK}} \
+      ARKADE_URL={{ARKADE_URL}} \
+      bundle exec ruby hodlhodl.rb -o 127.0.0.1 -p {{HODLHODL_PORT}} > /tmp/hodlhodl.log 2>&1 &
     echo $! > /tmp/hodlhodl.pid
     echo "Starting frontend..."
-    cd frontend && pnpm dev > /tmp/frontend.log 2>&1 &
+    cd frontend && \
+      VITE_HODLHODL_URL=http://localhost:{{HODLHODL_PORT}} \
+      VITE_ARKADE_URL={{ARKADE_URL}} \
+      pnpm exec vite --port {{FRONTEND_PORT}} > /tmp/frontend.log 2>&1 &
     echo $! > /tmp/frontend.pid
     sleep 2
     echo ""
-    echo "  Ruby server:  http://localhost:4567  (pid $(cat /tmp/hodlhodl.pid))"
-    echo "  Frontend:     http://localhost:3001  (pid $(cat /tmp/frontend.pid))"
+    echo "  Ruby server:  http://localhost:{{HODLHODL_PORT}}  (pid $(cat /tmp/hodlhodl.pid))"
+    echo "  Frontend:     http://localhost:{{FRONTEND_PORT}}  (pid $(cat /tmp/frontend.pid))"
     echo ""
-    echo "  Alice: http://localhost:3001/alice.html"
-    echo "  Bob:   http://localhost:3001/bob.html"
+    echo "  Alice: http://localhost:{{FRONTEND_PORT}}/alice.html"
+    echo "  Bob:   http://localhost:{{FRONTEND_PORT}}/bob.html"
     echo ""
-    echo "  Logs:  tail -f /tmp/hodlhodl.log /tmp/frontend.log"
+    echo "  Logs:  just logs"
     echo "  Stop:  just down"
 
 # Stop everything
@@ -64,7 +74,6 @@ down:
         rm -f /tmp/${name}.pid
       fi
     done
-    # Also kill any stragglers
     pkill -f "hodlhodl.rb" 2>/dev/null || true
     pkill -f "vite.*frontend" 2>/dev/null || true
 

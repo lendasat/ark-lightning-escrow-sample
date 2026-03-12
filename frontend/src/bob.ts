@@ -10,7 +10,7 @@ import {
 import { hex } from "@scure/base";
 import "./style.css";
 
-const ARKADE_URL = "http://localhost:7070";
+const ARKADE_URL = import.meta.env.VITE_ARKADE_URL ?? "http://localhost:7070";
 const STEPS = 5;
 
 // Cached for balance lookups
