@@ -38,3 +38,7 @@ happy-path:
 # Requires: nigiri + arkd + fulmine running
 e2e:
     ./e2e/run.sh
+
+# Start the frontend dev server
+frontend:
+    cd frontend && pnpm dev

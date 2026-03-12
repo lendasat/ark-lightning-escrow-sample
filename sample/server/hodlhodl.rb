@@ -36,6 +36,17 @@ configure do
   set :port, 4567
 end
 
+# CORS — allow browser frontend
+before do
+  headers "Access-Control-Allow-Origin" => "*",
+          "Access-Control-Allow-Methods" => "GET, POST, OPTIONS",
+          "Access-Control-Allow-Headers" => "Content-Type"
+end
+
+options "*" do
+  200
+end
+
 # --- Helpers ---
 
 def find_trade!(id)
@@ -92,6 +103,7 @@ get "/trades/:id" do
     trade_id: trade[:id],
     status: trade[:status],
     escrow_address: trade[:escrow_address],
+    amount: trade[:escrow_amount],
   )
 end
 

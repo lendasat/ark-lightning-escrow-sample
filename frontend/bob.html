@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bob — Escrow</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <h1>🔑 Bob — Escrow Receiver</h1>
+
+  <div id="step-1" class="step active">
+    <div class="step-title">1. Join Trade</div>
+    <div class="step-body" id="step-1-body">
+      <label>Trade ID
+        <input id="trade-id" placeholder="paste from Alice" />
+      </label>
+      <br/>
+      <label>Your secret key (hex)
+        <input id="bob-sk" type="password" placeholder="hex-encoded secret key" />
+      </label>
+      <br/>
+      <button id="btn-join">Join</button>
+      <div id="join-err" class="error"></div>
+    </div>
+  </div>
+
+  <div id="step-2" class="step">
+    <div class="step-title">2. Waiting for Funding</div>
+    <div class="step-body" id="step-2-body"></div>
+  </div>
+
+  <div id="step-3" class="step">
+    <div class="step-title">3. Waiting for Attestation</div>
+    <div class="step-body" id="step-3-body"></div>
+  </div>
+
+  <div id="step-4" class="step">
+    <div class="step-title">4. Sign & Release</div>
+    <div class="step-body" id="step-4-body"></div>
+  </div>
+
+  <div id="step-5" class="step">
+    <div class="step-title">5. Complete</div>
+    <div class="step-body" id="step-5-body"></div>
+  </div>
+
+  <script type="module" src="/src/bob.ts"></script>
+</body>
+</html>

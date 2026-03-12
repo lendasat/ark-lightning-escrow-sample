@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Alice — Escrow</title>
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <h1>🔒 Alice — Escrow Sender</h1>
+
+  <div id="step-1" class="step active">
+    <div class="step-title">1. Create Trade</div>
+    <div class="step-body" id="step-1-body">
+      <label>Alice pubkey (x-only hex)
+        <input id="alice-pk" placeholder="paste or generate" />
+      </label>
+      <br/>
+      <label>Bob pubkey (x-only hex)
+        <input id="bob-pk" placeholder="get from Bob" />
+      </label>
+      <br/>
+      <label>Amount (sats)
+        <input id="amount" type="number" value="10000" />
+      </label>
+      <br/>
+      <button id="btn-create">Create Trade</button>
+      <div id="create-err" class="error"></div>
+    </div>
+  </div>
+
+  <div id="step-2" class="step">
+    <div class="step-title">2. Fund Escrow</div>
+    <div class="step-body" id="step-2-body"></div>
+  </div>
+
+  <div id="step-3" class="step">
+    <div class="step-title">3. Confirm Funding</div>
+    <div class="step-body" id="step-3-body"></div>
+  </div>
+
+  <div id="step-4" class="step">
+    <div class="step-title">4. Attest</div>
+    <div class="step-body" id="step-4-body"></div>
+  </div>
+
+  <div id="step-5" class="step">
+    <div class="step-title">5. Waiting for Bob</div>
+    <div class="step-body" id="step-5-body"></div>
+  </div>
+
+  <div id="step-6" class="step">
+    <div class="step-title">6. Complete</div>
+    <div class="step-body" id="step-6-body"></div>
+  </div>
+
+  <script type="module" src="/src/alice.ts"></script>
+</body>
+</html>
