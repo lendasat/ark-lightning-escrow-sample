@@ -33,10 +33,12 @@ install:
 # Requires: nigiri + arkd + fulmine running (regtest stack)
 # Override with env vars: ARKADE_URL, HODLHODL_PORT, FRONTEND_PORT, ARBITER_SK
 
-ARKADE_URL   := env("ARKADE_URL", "http://localhost:7070")
-HODLHODL_PORT := env("HODLHODL_PORT", "4567")
-FRONTEND_PORT := env("FRONTEND_PORT", "3001")
-ARBITER_SK   := env("ARBITER_SK", "0000000000000000000000000000000000000000000000000000000000000001")
+ARKADE_URL       := env("ARKADE_URL", "http://localhost:7070")
+HODLHODL_PORT    := env("HODLHODL_PORT", "4567")
+FRONTEND_PORT    := env("FRONTEND_PORT", "3001")
+ARBITER_SK       := env("ARBITER_SK", "0000000000000000000000000000000000000000000000000000000000000001")
+VITE_HODLHODL_URL := env("VITE_HODLHODL_URL", "http://localhost:" + HODLHODL_PORT)
+VITE_ARKADE_URL  := env("VITE_ARKADE_URL", ARKADE_URL)
 
 # Start the Ruby server + frontend (background)
 up: build-ruby
@@ -51,8 +53,8 @@ up: build-ruby
     echo $! > /tmp/hodlhodl.pid
     echo "Starting frontend..."
     cd frontend && \
-      VITE_HODLHODL_URL=http://localhost:{{HODLHODL_PORT}} \
-      VITE_ARKADE_URL={{ARKADE_URL}} \
+      VITE_HODLHODL_URL={{VITE_HODLHODL_URL}} \
+      VITE_ARKADE_URL={{VITE_ARKADE_URL}} \
       pnpm exec vite --port {{FRONTEND_PORT}} > /tmp/frontend.log 2>&1 &
     echo $! > /tmp/frontend.pid
     sleep 2
