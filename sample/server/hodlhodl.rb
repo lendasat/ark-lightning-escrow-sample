@@ -100,7 +100,11 @@ post "/trades/:id/fund" do
   trade = find_trade!(params[:id])
   assert_status!(trade, "created")
 
-  vtxo = CLIENT.find_escrow_vtxo(trade[:contract])
+  begin
+    vtxo = CLIENT.find_escrow_vtxo(trade[:contract])
+  rescue => e
+    halt 404, json(error: "escrow VTXO lookup failed: #{e.message}")
+  end
   halt 404, json(error: "escrow VTXO not found on Arkade") unless vtxo
 
   trade[:escrow_outpoint] = vtxo[0]
@@ -168,7 +172,11 @@ post "/trades/:id/release/submit" do
   merged = ArkEscrow.merge_sigs(trade[:ark_tx_b64], bob_signed_b64)
 
   # Submit to Arkade
-  server_checkpoints = CLIENT.submit_release(merged, trade[:checkpoint_txs_b64])
+  begin
+    server_checkpoints = CLIENT.submit_release(merged, trade[:checkpoint_txs_b64])
+  rescue => e
+    halt 500, json(error: "submit failed: #{e.message}")
+  end
 
   # Arbiter signs each checkpoint
   arbiter_signed_checkpoints = server_checkpoints.map do |cp|

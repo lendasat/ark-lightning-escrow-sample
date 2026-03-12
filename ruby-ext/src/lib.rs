@@ -8,12 +8,14 @@ use bitcoin::secp256k1::Secp256k1;
 use bitcoin::{Amount, Network, Psbt, XOnlyPublicKey};
 use magnus::prelude::*;
 use magnus::{Error, Ruby, function, method};
+use tokio::runtime::Runtime;
 
 // --- helpers ---
 
 fn to_magnus_err(e: impl std::fmt::Display) -> Error {
     #[allow(deprecated)]
-    Error::new(magnus::exception::runtime_error(), e.to_string())
+    // Use debug formatting to get the full anyhow error chain
+    Error::new(magnus::exception::runtime_error(), format!("{e:#}"))
 }
 
 fn hex_to_32_bytes(hex: &str) -> Result<[u8; 32], Error> {
@@ -65,12 +67,6 @@ fn psbt_from_base64(s: &str) -> Result<Psbt, Error> {
     Psbt::deserialize(&bytes).map_err(to_magnus_err)
 }
 
-fn block_on<F: std::future::Future>(f: F) -> F::Output {
-    tokio::runtime::Runtime::new()
-        .expect("tokio runtime")
-        .block_on(f)
-}
-
 // --- Ruby wrappers ---
 
 /// Ruby class: `ArkEscrow::Contract`
@@ -93,7 +89,14 @@ impl RbContract {
             bob: parse_xonly(&bob_pk)?,
             arbiter: parse_xonly(&arbiter_pk)?,
             server: parse_xonly(&server_pk)?,
-            unilateral_exit_delay: bitcoin::Sequence(unilateral_exit_delay),
+            // Match Arkade's parse_sequence_number convention:
+            // values < 512 → block-based, values >= 512 → seconds-based
+            unilateral_exit_delay: if unilateral_exit_delay < 512 {
+                bitcoin::Sequence::from_height(unilateral_exit_delay as u16)
+            } else {
+                bitcoin::Sequence::from_seconds_ceil(unilateral_exit_delay)
+                    .map_err(to_magnus_err)?
+            },
         };
         let net = parse_network(&network)?;
         let contract = EscrowContract::new(opts, net).map_err(to_magnus_err)?;
@@ -106,21 +109,27 @@ impl RbContract {
 }
 
 /// Ruby class: `ArkEscrow::Client`
+///
+/// Uses a persistent tokio runtime so the gRPC connection stays alive
+/// across calls (a new runtime per call would invalidate the channel).
 #[magnus::wrap(class = "ArkEscrow::Client")]
 struct RbClient {
     inner: Mutex<EscrowClient>,
+    rt: Runtime,
 }
 
 impl RbClient {
-    fn new(url: String) -> Self {
-        Self {
+    fn new(url: String) -> Result<Self, Error> {
+        let rt = Runtime::new().map_err(to_magnus_err)?;
+        Ok(Self {
             inner: Mutex::new(EscrowClient::new(&url)),
-        }
+            rt,
+        })
     }
 
     fn connect(&self) -> Result<(), Error> {
         let mut client = self.inner.lock().map_err(to_magnus_err)?;
-        block_on(client.connect()).map_err(to_magnus_err)?;
+        self.rt.block_on(client.connect()).map_err(to_magnus_err)?;
         Ok(())
     }
 
@@ -135,7 +144,10 @@ impl RbClient {
     /// Find the escrow VTXO. Returns [outpoint_str, amount_sats] or nil.
     fn find_escrow_vtxo(&self, contract: &RbContract) -> Result<Option<(String, u64)>, Error> {
         let client = self.inner.lock().map_err(to_magnus_err)?;
-        let vtxo = block_on(client.find_escrow_vtxo(&contract.inner)).map_err(to_magnus_err)?;
+        let vtxo = self
+            .rt
+            .block_on(client.find_escrow_vtxo(&contract.inner))
+            .map_err(to_magnus_err)?;
         Ok(vtxo.map(|v| (v.outpoint.to_string(), v.amount.to_sat())))
     }
 
@@ -200,7 +212,10 @@ impl RbClient {
             .map(|b| psbt_from_base64(b))
             .collect::<Result<_, _>>()?;
 
-        let result = block_on(client.submit(ark_tx, checkpoints)).map_err(to_magnus_err)?;
+        let result = self
+            .rt
+            .block_on(client.submit(ark_tx, checkpoints))
+            .map_err(to_magnus_err)?;
 
         Ok(result
             .signed_checkpoint_txs
@@ -223,7 +238,9 @@ impl RbClient {
             .map(|b| psbt_from_base64(b))
             .collect::<Result<_, _>>()?;
 
-        block_on(client.finalize(txid, checkpoints)).map_err(to_magnus_err)?;
+        self.rt
+            .block_on(client.finalize(txid, checkpoints))
+            .map_err(to_magnus_err)?;
         Ok(())
     }
 }
