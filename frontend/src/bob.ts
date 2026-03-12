@@ -1,4 +1,4 @@
-import { api, $, setStep, show, pollStatus, getTrade, sleep } from "./common";
+import { api, $, setStep, show, pollStatus, getTrade, sleep, generateKeypair } from "./common";
 import {
   SingleKey,
   DefaultVtxo,
@@ -45,18 +45,24 @@ function toB64(u: Uint8Array): string {
 }
 
 async function main() {
+  // Generate Bob's keypair on load
+  const { sk: bobSk, pk: bobPk } = await generateKeypair();
+  $("bob-pk-display").textContent = bobPk;
+  $("keypair").style.display = "flex";
+
+  $("btn-copy-pk").addEventListener("click", () => {
+    navigator.clipboard.writeText(bobPk);
+    $("btn-copy-pk").textContent = "Copied!";
+    setTimeout(() => ($("btn-copy-pk").textContent = "Copy"), 1500);
+  });
+
   const btnJoin = $("btn-join") as HTMLButtonElement;
 
   btnJoin.addEventListener("click", async () => {
     const tradeId = ($("trade-id") as HTMLInputElement).value.trim();
-    const bobSk = ($("bob-sk") as HTMLInputElement).value.trim();
 
     if (!tradeId) {
       show("join-err", "Paste the trade ID from Alice");
-      return;
-    }
-    if (!bobSk || bobSk.length !== 64) {
-      show("join-err", "Secret key must be 64 hex chars");
       return;
     }
 

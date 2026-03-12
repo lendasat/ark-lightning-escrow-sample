@@ -9,6 +9,12 @@
 <body>
   <h1>🔑 Bob — Escrow Receiver</h1>
 
+  <div id="keypair" class="keypair-bar" style="display:none">
+    <span>Your pubkey:</span>
+    <code id="bob-pk-display"></code>
+    <button id="btn-copy-pk" class="secondary small">Copy</button>
+  </div>
+
   <div id="balance-bar" style="display:none">
     <span>Ark balance:</span>
     <span id="balance">0 sats</span>
@@ -19,10 +25,6 @@
     <div class="step-body" id="step-1-body">
       <label>Trade ID
         <input id="trade-id" placeholder="paste from Alice" />
-      </label>
-      <br/>
-      <label>Your secret key (hex)
-        <input id="bob-sk" type="password" placeholder="hex-encoded secret key" />
       </label>
       <br/>
       <button id="btn-join">Join</button>

@@ -1,20 +1,26 @@
-import { api, $, setStep, show, pollStatus, sleep } from "./common";
+import { api, $, setStep, show, pollStatus, sleep, generateKeypair } from "./common";
 import "./style.css";
 
 const STEPS = 6;
 
 async function main() {
+  // Generate Alice's keypair on load
+  const { pk: alicePk } = await generateKeypair();
+  $("alice-pk-display").textContent = alicePk;
+  $("keypair").style.display = "flex";
+
+  $("btn-copy-pk").addEventListener("click", () => {
+    navigator.clipboard.writeText(alicePk);
+    $("btn-copy-pk").textContent = "Copied!";
+    setTimeout(() => ($("btn-copy-pk").textContent = "Copy"), 1500);
+  });
+
   const btnCreate = $("btn-create") as HTMLButtonElement;
 
   btnCreate.addEventListener("click", async () => {
-    const alicePk = ($("alice-pk") as HTMLInputElement).value.trim();
     const bobPk = ($("bob-pk") as HTMLInputElement).value.trim();
     const amount = parseInt(($("amount") as HTMLInputElement).value);
 
-    if (!alicePk || alicePk.length !== 64) {
-      show("create-err", "Alice pubkey must be 64 hex chars (x-only)");
-      return;
-    }
     if (!bobPk || bobPk.length !== 64) {
       show("create-err", "Bob pubkey must be 64 hex chars (x-only)");
       return;
@@ -41,14 +47,15 @@ async function main() {
          <code class="mono">${trade.escrow_address}</code>
          <p style="margin-top: 0.6rem">Trade ID (share with Bob):</p>
          <code class="mono">${trade.trade_id}</code>
-         <button id="btn-copy" class="secondary" style="margin-left: 0.5rem">Copy ID</button>
+         <button id="btn-copy-id" class="secondary small" style="margin-left: 0.5rem">Copy</button>
          <br/>
          <button id="btn-funded" style="margin-top: 0.8rem">I've sent the funds →</button>`,
       );
 
-      $("btn-copy").addEventListener("click", () => {
+      $("btn-copy-id").addEventListener("click", () => {
         navigator.clipboard.writeText(trade.trade_id);
-        $("btn-copy").textContent = "Copied!";
+        $("btn-copy-id").textContent = "Copied!";
+        setTimeout(() => ($("btn-copy-id").textContent = "Copy"), 1500);
       });
 
       $("btn-funded").addEventListener("click", () =>
@@ -110,7 +117,7 @@ async function waitForCompletion(tradeId: string) {
   setStep(5, STEPS);
   show("step-5-body", "Waiting for Bob to sign and finalize...");
 
-  const trade = await pollStatus(tradeId, ["completed"], (t) => {
+  await pollStatus(tradeId, ["completed"], (t) => {
     show("step-5-body", `Status: ${t.status}...`);
   });
 

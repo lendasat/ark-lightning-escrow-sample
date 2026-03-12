@@ -51,6 +51,18 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** Generate a random secp256k1 keypair. Returns {sk, pk} as hex strings. */
+export async function generateKeypair(): Promise<{ sk: string; pk: string }> {
+  // Lazy-import to avoid pulling SDK into alice.ts bundle unnecessarily
+  const { SingleKey } = await import("@arkade-os/sdk");
+  const { hex } = await import("@scure/base");
+  const skBytes = crypto.getRandomValues(new Uint8Array(32));
+  const skHex = hex.encode(skBytes);
+  const key = SingleKey.fromHex(skHex);
+  const pk = await key.xOnlyPublicKey();
+  return { sk: skHex, pk: hex.encode(pk) };
+}
+
 export function $(id: string): HTMLElement {
   return document.getElementById(id)!;
 }

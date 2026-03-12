@@ -9,14 +9,16 @@
 <body>
   <h1>🔒 Alice — Escrow Sender</h1>
 
+  <div id="keypair" class="keypair-bar" style="display:none">
+    <span>Your pubkey:</span>
+    <code id="alice-pk-display"></code>
+    <button id="btn-copy-pk" class="secondary small">Copy</button>
+  </div>
+
   <div id="step-1" class="step active">
     <div class="step-title">1. Create Trade</div>
     <div class="step-body" id="step-1-body">
-      <label>Alice pubkey (x-only hex)
-        <input id="alice-pk" placeholder="paste or generate" />
-      </label>
-      <br/>
-      <label>Bob pubkey (x-only hex)
+      <label>Bob's pubkey (x-only hex)
         <input id="bob-pk" placeholder="get from Bob" />
       </label>
       <br/>
