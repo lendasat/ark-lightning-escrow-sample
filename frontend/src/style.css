@@ -96,6 +96,24 @@ input {
   margin-top: 0.3rem;
 }
 
+#balance-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 0.6rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.9rem;
+}
+
+#balance {
+  font-weight: 700;
+  color: #3fb950;
+  font-family: "SF Mono", "Fira Code", monospace;
+}
+
 .badge {
   display: inline-block;
   font-size: 0.7rem;

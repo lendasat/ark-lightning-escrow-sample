@@ -1,8 +1,9 @@
-import { api, $, setStep, show, pollStatus, getTrade } from "./common";
+import { api, $, setStep, show, pollStatus, getTrade, sleep } from "./common";
 import {
   SingleKey,
   DefaultVtxo,
   RestArkProvider,
+  RestIndexerProvider,
   Transaction,
   ArkAddress,
 } from "@arkade-os/sdk";
@@ -11,6 +12,24 @@ import "./style.css";
 
 const ARKADE_URL = "http://localhost:7070";
 const STEPS = 5;
+
+// Cached for balance lookups
+let bobPkScript: string | null = null;
+
+async function getBalance(): Promise<number> {
+  if (!bobPkScript) return 0;
+  const indexer = new RestIndexerProvider(ARKADE_URL);
+  const vtxos = await indexer.getVtxos({
+    scripts: [bobPkScript],
+    spendableOnly: true,
+  });
+  return vtxos.vtxos.reduce((sum, v) => sum + v.value, 0);
+}
+
+function showBalance(sats: number) {
+  $("balance").textContent = `${sats.toLocaleString()} sats`;
+  $("balance-bar").style.display = "flex";
+}
 
 function b64(s: string): Uint8Array {
   const bin = atob(s);
@@ -97,6 +116,11 @@ async function signAndRelease(tradeId: string, bobSk: string) {
       "tark",
     ).encode();
 
+    // Cache pkScript for balance lookups and show initial balance
+    bobPkScript = hex.encode(bobVtxo.pkScript);
+    const balanceBefore = await getBalance();
+    showBalance(balanceBefore);
+
     // 1. Request release
     show("step-4-body", "Requesting release from server...");
     const release = await api("POST", `/trades/${tradeId}/release`, {
@@ -145,11 +169,26 @@ async function signAndRelease(tradeId: string, bobSk: string) {
       '<span class="info">✓ Signed and finalized</span>',
     );
 
-    // Done
+    // Done — poll for updated balance
     setStep(5, STEPS);
+    show("step-5-body", "Waiting for funds to arrive...");
+
+    for (let i = 0; i < 15; i++) {
+      const balanceAfter = await getBalance();
+      showBalance(balanceAfter);
+      if (balanceAfter > balanceBefore) {
+        const received = balanceAfter - balanceBefore;
+        show(
+          "step-5-body",
+          `<span class="info">✓ Received <strong>${received.toLocaleString()} sats</strong>!</span>`,
+        );
+        return;
+      }
+      await sleep(2000);
+    }
     show(
       "step-5-body",
-      `<span class="info">✓ Funds received! Check your Ark wallet.</span>`,
+      '<span class="info">✓ Finalized! Balance may take a moment to update.</span>',
     );
   } catch (e: any) {
     show("step-4-body", `<span class="error">Error: ${e.message}</span>`);
