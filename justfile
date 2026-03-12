@@ -34,6 +34,7 @@ install:
 # Override with env vars: ARKADE_URL, HODLHODL_PORT, FRONTEND_PORT, ARBITER_SK
 
 ARKADE_URL       := env("ARKADE_URL", "http://localhost:7070")
+NETWORK          := env("NETWORK", "regtest")
 HODLHODL_PORT    := env("HODLHODL_PORT", "4567")
 FRONTEND_PORT    := env("FRONTEND_PORT", "3001")
 ARBITER_SK       := env("ARBITER_SK", "0000000000000000000000000000000000000000000000000000000000000001")
@@ -41,22 +42,25 @@ VITE_HODLHODL_URL := env("VITE_HODLHODL_URL", "http://localhost:" + HODLHODL_POR
 VITE_ARKADE_URL  := env("VITE_ARKADE_URL", ARKADE_URL)
 
 # Start the Ruby server + frontend (background)
+ROOT := justfile_directory()
+
 up: build-ruby
     #!/usr/bin/env bash
     just down 2>/dev/null || true
     echo "Starting Ruby server..."
-    cd sample/server && bundle install --quiet
-    cd sample/server && \
+    cd {{ROOT}}/sample/server && bundle install --quiet
+    (cd {{ROOT}}/sample/server && \
       ARBITER_SK={{ARBITER_SK}} \
       ARKADE_URL={{ARKADE_URL}} \
-      bundle exec ruby hodlhodl.rb -o 127.0.0.1 -p {{HODLHODL_PORT}} > /tmp/hodlhodl.log 2>&1 &
-    echo $! > /tmp/hodlhodl.pid
+      NETWORK={{NETWORK}} \
+      bundle exec ruby hodlhodl.rb -o 127.0.0.1 -p {{HODLHODL_PORT}} > /tmp/hodlhodl.log 2>&1 &) &
+    sleep 1 && pgrep -f "hodlhodl.rb" | head -1 > /tmp/hodlhodl.pid
     echo "Starting frontend..."
-    cd frontend && \
+    (cd {{ROOT}}/frontend && \
       VITE_HODLHODL_URL={{VITE_HODLHODL_URL}} \
       VITE_ARKADE_URL={{VITE_ARKADE_URL}} \
-      pnpm exec vite --port {{FRONTEND_PORT}} > /tmp/frontend.log 2>&1 &
-    echo $! > /tmp/frontend.pid
+      pnpm exec vite --port {{FRONTEND_PORT}} > /tmp/frontend.log 2>&1 &) &
+    sleep 1 && pgrep -f "vite.*{{FRONTEND_PORT}}" | head -1 > /tmp/frontend.pid
     sleep 2
     echo ""
     echo "  Ruby server:  http://localhost:{{HODLHODL_PORT}}  (pid $(cat /tmp/hodlhodl.pid))"

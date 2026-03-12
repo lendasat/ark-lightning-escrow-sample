@@ -43,7 +43,7 @@ fn parse_network(s: &str) -> Result<Network, Error> {
     match s {
         "mainnet" | "bitcoin" => Ok(Network::Bitcoin),
         "testnet" => Ok(Network::Testnet),
-        "signet" => Ok(Network::Signet),
+        "signet" | "mutinynet" => Ok(Network::Signet),
         "regtest" => Ok(Network::Regtest),
         _ => Err(to_magnus_err(format!("unknown network: {s}"))),
     }
@@ -139,6 +139,12 @@ impl RbClient {
         Ok(bitcoin::hex::DisplayHex::to_lower_hex_string(
             &info.signer_pk.x_only_public_key().0.serialize(),
         ))
+    }
+
+    fn unilateral_exit_delay(&self) -> Result<u32, Error> {
+        let client = self.inner.lock().map_err(to_magnus_err)?;
+        let info = client.server_info().map_err(to_magnus_err)?;
+        Ok(info.unilateral_exit_delay.to_consensus_u32())
     }
 
     /// Find the escrow VTXO. Returns [outpoint_str, amount_sats] or nil.
@@ -282,6 +288,10 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     client_class.define_singleton_method("new", function!(RbClient::new, 1))?;
     client_class.define_method("connect", method!(RbClient::connect, 0))?;
     client_class.define_method("server_pk", method!(RbClient::server_pk, 0))?;
+    client_class.define_method(
+        "unilateral_exit_delay",
+        method!(RbClient::unilateral_exit_delay, 0),
+    )?;
     client_class.define_method("find_escrow_vtxo", method!(RbClient::find_escrow_vtxo, 1))?;
     client_class.define_method("build_release", method!(RbClient::build_release, 6))?;
     client_class.define_method("submit_release", method!(RbClient::submit_release, 2))?;

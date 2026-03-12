@@ -24,6 +24,8 @@ impl EscrowClient {
 
     /// Connect to the Arkade server and fetch server info.
     pub async fn connect(&mut self) -> Result<&server::Info> {
+        // Ensure a TLS crypto provider is installed (needed for https:// URLs)
+        let _ = rustls::crypto::ring::default_provider().install_default();
         self.grpc.connect().await.context("connecting to Arkade")?;
         let info = self.grpc.get_info().await.context("getting server info")?;
         self.server_info = Some(info);

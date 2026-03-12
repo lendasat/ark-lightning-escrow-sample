@@ -17,7 +17,6 @@ require "ark_escrow"
 
 ARKADE_URL = ENV.fetch("ARKADE_URL", "http://localhost:7070")
 ARBITER_SK = ENV.fetch("ARBITER_SK") # hex-encoded secret key
-UNILATERAL_EXIT_DELAY = ENV.fetch("UNILATERAL_EXIT_DELAY", "512").to_i
 NETWORK = ENV.fetch("NETWORK", "regtest")
 
 # Fee as percentage of escrow amount (e.g., "0.01" = 1%)
@@ -77,7 +76,7 @@ post "/trades" do
 
   contract = ArkEscrow::Contract.new(
     alice_pk, bob_pk, ARBITER_SK_PK, server_pk,
-    UNILATERAL_EXIT_DELAY, NETWORK
+    CLIENT.unilateral_exit_delay, NETWORK
   )
 
   TRADES[id] = {
