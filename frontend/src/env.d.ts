@@ -3,6 +3,7 @@
 interface ImportMetaEnv {
   readonly VITE_HODLHODL_URL?: string;
   readonly VITE_ARKADE_URL?: string;
+  readonly VITE_EXPLORER_URL?: string;
 }
 
 interface ImportMeta {

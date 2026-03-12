@@ -1,4 +1,4 @@
-import { api, $, setStep, show, pollStatus, sleep, generateKeypair } from "./common";
+import { api, $, setStep, show, pollStatus, sleep, generateKeypair, addressLink } from "./common";
 import "./style.css";
 
 const STEPS = 6;
@@ -44,7 +44,7 @@ async function main() {
       show(
         "step-2-body",
         `<p>Send <strong>${amount.toLocaleString()} sats</strong> to this Ark address:</p>
-         <code class="mono">${trade.escrow_address}</code>
+         ${addressLink(trade.escrow_address)}
          <p style="margin-top: 0.6rem">Trade ID (share with Bob):</p>
          <code class="mono">${trade.trade_id}</code>
          <button id="btn-copy-id" class="secondary small" style="margin-left: 0.5rem">Copy</button>

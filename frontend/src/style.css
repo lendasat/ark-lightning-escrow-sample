@@ -139,6 +139,18 @@ button.small {
   font-family: "SF Mono", "Fira Code", monospace;
 }
 
+a.explorer-link {
+  color: #58a6ff;
+  text-decoration: none;
+  word-break: break-all;
+  display: block;
+  margin-top: 0.3rem;
+}
+
+a.explorer-link:hover {
+  text-decoration: underline;
+}
+
 .badge {
   display: inline-block;
   font-size: 0.7rem;

@@ -1,4 +1,16 @@
 const HODLHODL_URL = import.meta.env.VITE_HODLHODL_URL ?? "http://localhost:4567";
+const EXPLORER_URL = import.meta.env.VITE_EXPLORER_URL ?? "";
+
+/** Wrap text in an explorer link if VITE_EXPLORER_URL is set, otherwise return plain HTML. */
+export function explorerLink(path: string, label: string): string {
+  if (!EXPLORER_URL) return `<code class="mono">${label}</code>`;
+  const base = EXPLORER_URL.replace(/\/+$/, "");
+  return `<a href="${base}/${path}" target="_blank" class="mono explorer-link">${label}</a>`;
+}
+
+export function addressLink(addr: string): string {
+  return explorerLink(`address/${addr}`, addr);
+}
 
 export async function api(
   method: string,

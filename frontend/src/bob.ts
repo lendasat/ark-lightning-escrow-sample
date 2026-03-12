@@ -1,35 +1,9 @@
-import { api, $, setStep, show, pollStatus, getTrade, sleep, generateKeypair } from "./common";
-import {
-  SingleKey,
-  DefaultVtxo,
-  RestArkProvider,
-  RestIndexerProvider,
-  Transaction,
-  ArkAddress,
-} from "@arkade-os/sdk";
+import { api, $, setStep, show, pollStatus, getTrade, generateKeypair, addressLink } from "./common";
+import { Transaction } from "@arkade-os/sdk";
 import { hex } from "@scure/base";
 import "./style.css";
 
-const ARKADE_URL = import.meta.env.VITE_ARKADE_URL ?? "http://localhost:7070";
 const STEPS = 5;
-
-// Cached for balance lookups
-let bobPkScript: string | null = null;
-
-async function getBalance(): Promise<number> {
-  if (!bobPkScript) return 0;
-  const indexer = new RestIndexerProvider(ARKADE_URL);
-  const vtxos = await indexer.getVtxos({
-    scripts: [bobPkScript],
-    spendableOnly: true,
-  });
-  return vtxos.vtxos.reduce((sum, v) => sum + v.value, 0);
-}
-
-function showBalance(sats: number) {
-  $("balance").textContent = `${sats.toLocaleString()} sats`;
-  $("balance-bar").style.display = "flex";
-}
 
 function b64(s: string): Uint8Array {
   const bin = atob(s);
@@ -100,33 +74,30 @@ async function waitForAttestation(tradeId: string, bobSk: string) {
 
 async function signAndRelease(tradeId: string, bobSk: string) {
   setStep(4, STEPS);
-  show("step-4-body", "Building release transaction...");
+  show(
+    "step-4-body",
+    `<label>Destination address (Ark)
+       <input id="dest-addr" placeholder="tark1q..." />
+     </label>
+     <br/>
+     <button id="btn-claim">Claim →</button>
+     <div id="claim-err" class="error"></div>`,
+  );
 
+  $("btn-claim").addEventListener("click", () => {
+    const dest = ($("dest-addr") as HTMLInputElement).value.trim();
+    if (!dest || !dest.startsWith("tark")) {
+      show("claim-err", "Enter a valid Ark address");
+      return;
+    }
+    ($("btn-claim") as HTMLButtonElement).disabled = true;
+    show("claim-err", "");
+    doClaim(tradeId, bobSk, dest);
+  });
+}
+
+async function doClaim(tradeId: string, bobSk: string, bobDest: string) {
   try {
-    // Build Bob's destination address
-    const arkProvider = new RestArkProvider(ARKADE_URL);
-    const serverInfo = await arkProvider.getInfo();
-    const serverXonly = hex.decode(serverInfo.signerPubkey).slice(1);
-    const bobKey = SingleKey.fromHex(bobSk);
-    const bobPk = await bobKey.xOnlyPublicKey();
-    const exitDelay = serverInfo.unilateralExitDelay;
-    const csvType = exitDelay >= 512n ? "seconds" : "blocks";
-    const bobVtxo = new DefaultVtxo.Script({
-      pubKey: bobPk,
-      serverPubKey: serverXonly,
-      csvTimelock: { value: exitDelay, type: csvType },
-    });
-    const bobDest = new ArkAddress(
-      serverXonly,
-      bobVtxo.tweakedPublicKey,
-      "tark",
-    ).encode();
-
-    // Cache pkScript for balance lookups and show initial balance
-    bobPkScript = hex.encode(bobVtxo.pkScript);
-    const balanceBefore = await getBalance();
-    showBalance(balanceBefore);
-
     // 1. Request release
     show("step-4-body", "Requesting release from server...");
     const release = await api("POST", `/trades/${tradeId}/release`, {
@@ -175,26 +146,11 @@ async function signAndRelease(tradeId: string, bobSk: string) {
       '<span class="info">✓ Signed and finalized</span>',
     );
 
-    // Done — poll for updated balance
+    // Done
     setStep(5, STEPS);
-    show("step-5-body", "Waiting for funds to arrive...");
-
-    for (let i = 0; i < 15; i++) {
-      const balanceAfter = await getBalance();
-      showBalance(balanceAfter);
-      if (balanceAfter > balanceBefore) {
-        const received = balanceAfter - balanceBefore;
-        show(
-          "step-5-body",
-          `<span class="info">✓ Received <strong>${received.toLocaleString()} sats</strong>!</span>`,
-        );
-        return;
-      }
-      await sleep(2000);
-    }
     show(
       "step-5-body",
-      '<span class="info">✓ Finalized! Balance may take a moment to update.</span>',
+      `<span class="info">✓ Funds released to ${addressLink(bobDest)}</span>`,
     );
   } catch (e: any) {
     show("step-4-body", `<span class="error">Error: ${e.message}</span>`);
