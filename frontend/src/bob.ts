@@ -1,6 +1,22 @@
-import { api, $, setStep, show, pollStatus, getTrade, getOrCreateKeypair, addressLink } from "./common";
+import {
+  api,
+  $,
+  setStep,
+  show,
+  pollStatus,
+  getTrade,
+  getOrCreateKeypair,
+  sleep,
+  LENDASWAP_URL,
+  ARKADE_URL,
+} from "./common";
 import { Transaction } from "@arkade-os/sdk";
 import { hex } from "@scure/base";
+import {
+  Client,
+  InMemorySwapStorage,
+  InMemoryWalletStorage,
+} from "@lendasat/lendaswap-sdk-pure";
 import "./style.css";
 
 const STEPS = 5;
@@ -16,6 +32,15 @@ function toB64(u: Uint8Array): string {
   let bin = "";
   for (let i = 0; i < u.length; i++) bin += String.fromCharCode(u[i]);
   return btoa(bin);
+}
+
+async function buildLendaswapClient(): Promise<Client> {
+  return Client.builder()
+    .withBaseUrl(LENDASWAP_URL)
+    .withArkadeServerUrl(ARKADE_URL)
+    .withSignerStorage(new InMemoryWalletStorage())
+    .withSwapStorage(new InMemorySwapStorage())
+    .build();
 }
 
 async function main() {
@@ -44,7 +69,10 @@ async function main() {
 
     try {
       const trade = await getTrade(tradeId);
-      show("step-1-body", `<span class="info">✓ Joined trade ${tradeId.slice(0, 8)}…</span>`);
+      show(
+        "step-1-body",
+        `<span class="info">✓ Joined trade ${tradeId.slice(0, 8)}…</span>`,
+      );
       waitForFunding(tradeId, bobSk, trade);
     } catch (e: any) {
       show("join-err", e.message);
@@ -53,7 +81,7 @@ async function main() {
   });
 }
 
-async function waitForFunding(tradeId: string, bobSk: string, trade: any) {
+async function waitForFunding(tradeId: string, bobSk: string, _trade: any) {
   setStep(2, STEPS);
   show("step-2-body", "Waiting for Alice to fund the escrow...");
 
@@ -75,84 +103,138 @@ async function signAndRelease(tradeId: string, bobSk: string) {
   setStep(4, STEPS);
   show(
     "step-4-body",
-    `<label>Destination address (Ark)
-       <input id="dest-addr" placeholder="tark1q..." />
+    `<label>Lightning invoice (BOLT11)
+       <input id="ln-invoice" placeholder="lnbc..." />
      </label>
      <br/>
-     <button id="btn-claim">Claim →</button>
+     <button id="btn-claim">Claim via Lightning →</button>
      <div id="claim-err" class="error"></div>`,
   );
 
-  $("btn-claim").addEventListener("click", () => {
-    const dest = ($("dest-addr") as HTMLInputElement).value.trim();
-    if (!dest || !(dest.startsWith("ark1") || dest.startsWith("tark1"))) {
-      show("claim-err", "Enter a valid Ark address (ark1… or tark1…)");
+  $("btn-claim").addEventListener("click", async () => {
+    const invoice = ($("ln-invoice") as HTMLInputElement).value.trim();
+    if (!invoice || !invoice.toLowerCase().startsWith("ln")) {
+      show("claim-err", "Paste a valid BOLT11 Lightning invoice");
       return;
     }
     ($("btn-claim") as HTMLButtonElement).disabled = true;
     show("claim-err", "");
-    doClaim(tradeId, bobSk, dest);
+
+    try {
+      await doClaim(tradeId, bobSk, invoice);
+    } catch (e: any) {
+      show(
+        "step-4-body",
+        `<span class="error">Error: ${e.message}</span>`,
+      );
+    }
   });
 }
 
-async function doClaim(tradeId: string, bobSk: string, bobDest: string) {
-  try {
-    // 1. Request release
-    show("step-4-body", "Requesting release from server...");
-    const release = await api("POST", `/trades/${tradeId}/release`, {
-      bob_dest_address: bobDest,
-    });
+async function doClaim(
+  tradeId: string,
+  bobSk: string,
+  lightningInvoice: string,
+) {
+  // 1. Create Arkade→Lightning swap to get a VHTLC destination
+  show("step-4-body", "Creating Lightning swap...");
+  const lsClient = await buildLendaswapClient();
+  const swap = await lsClient.createArkadeToLightningSwap({
+    lightningInvoice,
+  });
+  const vhtlcAddress = swap.response.arkade_vhtlc_address;
+  const swapId = swap.response.id;
 
-    // 2. Sign ark_tx
-    show("step-4-body", "Signing transaction...");
-    const sk = hex.decode(bobSk);
-    const arkTx = Transaction.fromPSBT(b64(release.ark_tx_psbt));
-    arkTx.signIdx(sk, 0);
-    const signedArkTx = toB64(arkTx.toPSBT());
+  // 2. Release escrow to the VHTLC address
+  show("step-4-body", "Requesting release from server...");
+  const release = await api("POST", `/trades/${tradeId}/release`, {
+    bob_dest_address: vhtlcAddress,
+  });
 
-    // 3. Submit
-    show("step-4-body", "Submitting to Arkade...");
-    const submitted = await api(
-      "POST",
-      `/trades/${tradeId}/release/submit`,
-      { signed_ark_tx: signedArkTx },
-    );
+  // 3. Sign ark_tx
+  show("step-4-body", "Signing transaction...");
+  const sk = hex.decode(bobSk);
+  const arkTx = Transaction.fromPSBT(b64(release.ark_tx_psbt));
+  arkTx.signIdx(sk, 0);
+  const signedArkTx = toB64(arkTx.toPSBT());
 
-    // 4. Sign checkpoints
-    show("step-4-body", "Signing checkpoints...");
-    const signedCheckpoints = submitted.checkpoint_psbts.map(
-      (cpB64: string) => {
-        const cpTx = Transaction.fromPSBT(b64(cpB64));
-        cpTx.signIdx(sk, 0);
-        return toB64(cpTx.toPSBT());
-      },
-    );
+  // 4. Submit
+  show("step-4-body", "Submitting to Arkade...");
+  const submitted = await api("POST", `/trades/${tradeId}/release/submit`, {
+    signed_ark_tx: signedArkTx,
+  });
 
-    // 5. Finalize
-    show("step-4-body", "Finalizing...");
-    const arkTxForId = Transaction.fromPSBT(b64(release.ark_tx_psbt));
-    const txId = arkTxForId.id;
-    const arkTxid =
-      txId instanceof Uint8Array ? hex.encode(txId) : String(txId);
+  // 5. Sign checkpoints
+  show("step-4-body", "Signing checkpoints...");
+  const signedCheckpoints = submitted.checkpoint_psbts.map((cpB64: string) => {
+    const cpTx = Transaction.fromPSBT(b64(cpB64));
+    cpTx.signIdx(sk, 0);
+    return toB64(cpTx.toPSBT());
+  });
 
-    await api("POST", `/trades/${tradeId}/release/finalize`, {
-      signed_checkpoint_psbts: signedCheckpoints,
-      ark_txid: arkTxid,
-    });
+  // 6. Finalize
+  show("step-4-body", "Finalizing release...");
+  const arkTxForId = Transaction.fromPSBT(b64(release.ark_tx_psbt));
+  const txId = arkTxForId.id as unknown;
+  const arkTxid =
+    txId instanceof Uint8Array
+      ? hex.encode(txId)
+      : String(txId);
 
-    show(
-      "step-4-body",
-      '<span class="info">✓ Signed and finalized</span>',
-    );
+  await api("POST", `/trades/${tradeId}/release/finalize`, {
+    signed_checkpoint_psbts: signedCheckpoints,
+    ark_txid: arkTxid,
+  });
 
-    // Done
-    setStep(5, STEPS);
-    show(
-      "step-5-body",
-      `<span class="info">✓ Funds released to ${addressLink(bobDest)}</span>`,
-    );
-  } catch (e: any) {
-    show("step-4-body", `<span class="error">Error: ${e.message}</span>`);
+  show(
+    "step-4-body",
+    '<span class="info">✓ Escrow released to swap VHTLC</span>',
+  );
+
+  // 7. Wait for lendaswap to complete the Lightning payment
+  await waitForLightningPayment(lsClient, swapId);
+}
+
+async function waitForLightningPayment(lsClient: Client, swapId: string) {
+  setStep(5, STEPS);
+  show("step-5-body", "Waiting for Lightning payment...");
+
+  const DONE = ["serverredeemed"];
+  const TERMINAL_FAIL = [
+    "expired",
+    "clientrefunded",
+    "clientfundedserverrefunded",
+    "clientrefundedserverrefunded",
+  ];
+
+  for (let i = 0; ; i++) {
+    const swap = await lsClient.getSwap(swapId, { updateStorage: true });
+    const status = swap.status;
+
+    if (DONE.includes(status)) {
+      show(
+        "step-5-body",
+        '<span class="info">✓ Lightning invoice paid! Trade complete.</span>',
+      );
+      return;
+    }
+
+    if (TERMINAL_FAIL.includes(status)) {
+      show(
+        "step-5-body",
+        `<span class="error">Swap failed: ${status}</span>`,
+      );
+      return;
+    }
+
+    const label =
+      status === "clientfunded"
+        ? "VHTLC funded, server processing..."
+        : status === "clientredeemed" || status === "serverfunded"
+          ? "Lightning payment in progress..."
+          : `Waiting for swap to complete... (${status})`;
+    show("step-5-body", label);
+    await sleep(3000);
   }
 }
 
