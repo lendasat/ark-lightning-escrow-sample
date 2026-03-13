@@ -14,6 +14,10 @@ export function addressLink(addr: string): string {
   return explorerLink(`address/${addr}`, addr);
 }
 
+export function txLink(txid: string): string {
+  return explorerLink(`tx/${txid}`, txid.slice(0, 12) + "…");
+}
+
 export async function api(
   method: string,
   path: string,
@@ -41,6 +45,8 @@ export interface Trade {
   status: string;
   escrow_address: string;
   amount?: number;
+  escrow_outpoint?: string;
+  release_txid?: string;
 }
 
 export async function getTrade(id: string): Promise<Trade> {

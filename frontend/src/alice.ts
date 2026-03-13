@@ -6,6 +6,9 @@ import {
   pollStatus,
   sleep,
   getOrCreateKeypair,
+  getTrade,
+  addressLink,
+  txLink,
   LENDASWAP_URL,
   ARKADE_URL,
 } from "./common";
@@ -83,6 +86,7 @@ async function main() {
          <code class="mono" style="word-break:break-all; font-size:0.75rem">${invoice}</code>
          <br/>
          <button id="btn-copy-invoice" class="secondary small" style="margin-top:0.4rem">Copy invoice</button>
+         <p style="margin-top: 0.6rem">Escrow address: ${addressLink(trade.escrow_address)}</p>
          <p style="margin-top: 0.6rem">Trade ID (share with Bob):</p>
          <code class="mono">${trade.trade_id}</code>
          <button id="btn-copy-id" class="secondary small" style="margin-left: 0.5rem">Copy</button>`,
@@ -223,9 +227,12 @@ async function confirmFunding(tradeId: string) {
   for (let i = 0; i < 30; i++) {
     try {
       const funded = await api("POST", `/trades/${tradeId}/fund`);
+      const trade = await getTrade(tradeId);
+      const fundTxid = trade.escrow_outpoint?.split(":")[0];
+      const txInfo = fundTxid ? ` — tx: ${txLink(fundTxid)}` : "";
       show(
         "step-3-body",
-        `<span class="info">✓ Escrow funded: ${funded.amount.toLocaleString()} sats</span>`,
+        `<span class="info">✓ Escrow funded: ${funded.amount.toLocaleString()} sats${txInfo}</span>`,
       );
       goAttest(tradeId);
       return;
@@ -280,10 +287,14 @@ async function waitForCompletion(tradeId: string) {
     show("step-5-body", `Status: ${t.status}...`);
   });
 
+  const finalTrade = await getTrade(tradeId);
+  const releaseTxInfo = finalTrade.release_txid
+    ? `<br/>Release tx: ${txLink(finalTrade.release_txid)}`
+    : "";
   setStep(6, STEPS);
   show(
     "step-6-body",
-    '<span class="info">✓ Trade completed! Funds released to Bob.</span>',
+    `<span class="info">✓ Trade completed! Funds released to Bob.${releaseTxInfo}</span>`,
   );
 }
 

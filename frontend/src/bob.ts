@@ -6,6 +6,8 @@ import {
   pollStatus,
   getTrade,
   getOrCreateKeypair,
+  addressLink,
+  txLink,
   sleep,
   LENDASWAP_URL,
   ARKADE_URL,
@@ -86,7 +88,14 @@ async function waitForFunding(tradeId: string, bobSk: string) {
   show("step-2-body", "Waiting for Alice to fund the escrow...");
 
   await pollStatus(tradeId, ["funded", "attested", "releasing", "completed"]);
-  show("step-2-body", '<span class="info">✓ Escrow funded</span>');
+  const fundedTrade = await getTrade(tradeId);
+  const fundTxid = fundedTrade.escrow_outpoint?.split(":")[0];
+  const txInfo = fundTxid ? ` — tx: ${txLink(fundTxid)}` : "";
+  show(
+    "step-2-body",
+    `<span class="info">✓ Escrow funded${txInfo}</span>
+     <br/>Escrow address: ${addressLink(fundedTrade.escrow_address)}`,
+  );
   waitForAttestation(tradeId, bobSk);
 }
 
@@ -207,7 +216,7 @@ async function doClaim(
 
   show(
     "step-4-body",
-    '<span class="info">✓ Escrow released to swap VHTLC</span>',
+    `<span class="info">✓ Escrow released to swap VHTLC — tx: ${txLink(arkTxid)}</span>`,
   );
 
   // 7. Wait for lendaswap to complete the Lightning payment

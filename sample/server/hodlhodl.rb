@@ -90,6 +90,7 @@ post "/trades" do
     checkpoint_txs_b64: nil,
     escrow_outpoint: nil,
     escrow_amount: nil,
+    release_txid: nil,
   }
 
   json(trade_id: id, escrow_address: contract.address, status: "created")
@@ -103,6 +104,8 @@ get "/trades/:id" do
     status: trade[:status],
     escrow_address: trade[:escrow_address],
     amount: trade[:escrow_amount],
+    escrow_outpoint: trade[:escrow_outpoint],
+    release_txid: trade[:release_txid],
   )
 end
 
@@ -225,7 +228,8 @@ post "/trades/:id/release/finalize" do
   CLIENT.finalize_release(ark_txid, final_checkpoints)
 
   trade[:status] = "completed"
-  json(trade_id: trade[:id], status: "completed")
+  trade[:release_txid] = ark_txid
+  json(trade_id: trade[:id], status: "completed", release_txid: ark_txid)
 end
 
 # --- Compute arbiter public key from secret key ---
