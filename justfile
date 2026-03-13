@@ -49,9 +49,10 @@ NETWORK          := env("NETWORK", "regtest")
 HODLHODL_PORT    := env("HODLHODL_PORT", "4567")
 FRONTEND_PORT    := env("FRONTEND_PORT", "3001")
 ARBITER_SK       := env("ARBITER_SK", "0000000000000000000000000000000000000000000000000000000000000001")
-VITE_HODLHODL_URL  := env("VITE_HODLHODL_URL", "http://localhost:" + HODLHODL_PORT)
-VITE_ARKADE_URL   := env("VITE_ARKADE_URL", ARKADE_URL)
-VITE_EXPLORER_URL := env("VITE_EXPLORER_URL", "")
+VITE_HODLHODL_URL   := env("VITE_HODLHODL_URL", "http://localhost:" + HODLHODL_PORT)
+VITE_ARKADE_URL     := env("VITE_ARKADE_URL", ARKADE_URL)
+VITE_LENDASWAP_URL  := env("VITE_LENDASWAP_URL", "http://localhost:7071")
+VITE_EXPLORER_URL   := env("VITE_EXPLORER_URL", "")
 
 # Start the Ruby server + frontend (background)
 ROOT := justfile_directory()
@@ -71,6 +72,7 @@ up: build-ruby
     (cd {{ROOT}}/frontend && \
       VITE_HODLHODL_URL={{VITE_HODLHODL_URL}} \
       VITE_ARKADE_URL={{VITE_ARKADE_URL}} \
+      VITE_LENDASWAP_URL={{VITE_LENDASWAP_URL}} \
       VITE_EXPLORER_URL={{VITE_EXPLORER_URL}} \
       pnpm exec vite --port {{FRONTEND_PORT}} > /tmp/frontend.log 2>&1 &) &
     sleep 1 && pgrep -f "vite.*{{FRONTEND_PORT}}" | head -1 > /tmp/frontend.pid

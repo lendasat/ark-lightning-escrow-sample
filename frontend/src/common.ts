@@ -1,5 +1,7 @@
 const HODLHODL_URL = import.meta.env.VITE_HODLHODL_URL ?? "http://localhost:4567";
 const EXPLORER_URL = import.meta.env.VITE_EXPLORER_URL ?? "";
+export const LENDASWAP_URL = import.meta.env.VITE_LENDASWAP_URL ?? "http://localhost:7071";
+export const ARKADE_URL = import.meta.env.VITE_ARKADE_URL ?? "http://localhost:7070";
 
 /** Wrap text in an explorer link if VITE_EXPLORER_URL is set, otherwise return plain HTML. */
 export function explorerLink(path: string, label: string): string {

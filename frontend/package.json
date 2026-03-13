@@ -8,11 +8,20 @@
   },
   "dependencies": {
     "@arkade-os/sdk": "^0.4.4",
-    "@lendasat/lendaswap-sdk-pure": "https://github.com/lendasat/lendaswap-sdk.git#main&path:/ts-pure-sdk",
-    "@scure/base": "^2.0.0"
+    "@lendasat/lendaswap-sdk-pure": "link:../../lendaswap2/client-sdk/ts-pure-sdk",
+    "@scure/base": "^2.0.0",
+    "qrcode": "^1.5.4"
   },
   "devDependencies": {
+    "@types/qrcode": "^1.5.5",
     "typescript": "^5.9.3",
     "vite": "^6.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@lendasat/lendaswap-sdk-pure",
+      "esbuild",
+      "better-sqlite3"
+    ]
   }
 }
