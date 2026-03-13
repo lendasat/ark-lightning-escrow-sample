@@ -73,7 +73,7 @@ async function main() {
         "step-1-body",
         `<span class="info">✓ Joined trade ${tradeId.slice(0, 8)}…</span>`,
       );
-      waitForFunding(tradeId, bobSk, trade);
+      waitForFunding(tradeId, bobSk);
     } catch (e: any) {
       show("join-err", e.message);
       btnJoin.disabled = false;
@@ -81,7 +81,7 @@ async function main() {
   });
 }
 
-async function waitForFunding(tradeId: string, bobSk: string, _trade: any) {
+async function waitForFunding(tradeId: string, bobSk: string) {
   setStep(2, STEPS);
   show("step-2-body", "Waiting for Alice to fund the escrow...");
 
@@ -99,11 +99,33 @@ async function waitForAttestation(tradeId: string, bobSk: string) {
   showClaimForm(tradeId, bobSk);
 }
 
-function showClaimForm(tradeId: string, bobSk: string) {
+async function showClaimForm(tradeId: string, bobSk: string) {
   setStep(4, STEPS);
+
+  // Fetch trade to get escrow amount, then quote to get exact LN payout
+  const trade = await getTrade(tradeId);
+  const escrowAmount = trade.amount!;
+
+  let invoiceAmount: number;
+  try {
+    const lsClient = await buildLendaswapClient();
+    const quote = await lsClient.getQuote({
+      sourceChain: "Arkade",
+      sourceToken: "btc",
+      targetChain: "Lightning",
+      targetToken: "btc",
+      sourceAmount: escrowAmount,
+    });
+    invoiceAmount = parseInt(quote.target_amount);
+  } catch {
+    // Fallback: estimate with no fee info (user will see validation error if wrong)
+    invoiceAmount = escrowAmount;
+  }
+
   show(
     "step-4-body",
-    `<label>Lightning invoice (BOLT11)
+    `<p>Generate a Lightning invoice for exactly <strong>${invoiceAmount.toLocaleString()} sats</strong> and paste it below.</p>
+     <label>Lightning invoice (BOLT11)
        <input id="ln-invoice" placeholder="lnbc..." />
      </label>
      <br/>
@@ -210,6 +232,7 @@ async function waitForLightningPayment(lsClient: Client, swapId: string) {
     "clientrefunded",
     "clientfundedserverrefunded",
     "clientrefundedserverrefunded",
+    "clientinvalidfunded",
   ];
 
   for (let i = 0; ; i++) {

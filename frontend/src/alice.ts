@@ -155,6 +155,7 @@ async function waitForPaymentAndClaim(
     "expired",
     "clientrefunded",
     "clientfundedserverrefunded",
+    "clientinvalidfunded",
   ];
 
   for (let i = 0; ; i++) {
