@@ -22,6 +22,7 @@ import {
 import "./style.css";
 
 const STEPS = 5;
+const LENDASWAP_FEE_SATS = 1;
 
 function b64(s: string): Uint8Array {
   const bin = atob(s);
@@ -44,6 +45,50 @@ async function buildLendaswapClient(): Promise<Client> {
     .withSwapStorage(new InMemorySwapStorage())
     .build();
 }
+
+// ---------------------------------------------------------------------------
+// Input classification
+// ---------------------------------------------------------------------------
+
+type LnInput =
+  | { type: "bolt11"; invoice: string }
+  | { type: "lnaddress"; address: string };
+
+function classifyInput(raw: string): LnInput | null {
+  const s = raw.trim();
+  const lower = s.toLowerCase();
+
+  // BOLT11 invoice
+  if (
+    lower.startsWith("lnbc") ||
+    lower.startsWith("lntb") ||
+    lower.startsWith("lnbcrt")
+  ) {
+    return { type: "bolt11", invoice: s };
+  }
+
+  // Lightning address (user@domain) — backend resolves via LNURL-pay
+  if (/^[a-zA-Z0-9._+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(s)) {
+    return { type: "lnaddress", address: s };
+  }
+
+  return null;
+}
+
+/** Build SDK swap options from classified input. */
+function toSwapOptions(
+  input: LnInput,
+  amountSats: number,
+): { lightningInvoice?: string; lightningAddress?: string; amountSats?: number } {
+  if (input.type === "bolt11") {
+    return { lightningInvoice: input.invoice };
+  }
+  return { lightningAddress: input.address, amountSats };
+}
+
+// ---------------------------------------------------------------------------
+// Main flow
+// ---------------------------------------------------------------------------
 
 async function main() {
   const { sk: bobSk, pk: bobPk } = await getOrCreateKeypair("bob");
@@ -111,48 +156,39 @@ async function waitForAttestation(tradeId: string, bobSk: string) {
 async function showClaimForm(tradeId: string, bobSk: string) {
   setStep(4, STEPS);
 
-  // Fetch trade to get escrow amount, then quote to get exact LN payout
   const trade = await getTrade(tradeId);
   const escrowAmount = trade.amount!;
-
-  let invoiceAmount: number;
-  try {
-    const lsClient = await buildLendaswapClient();
-    const quote = await lsClient.getQuote({
-      sourceChain: "Arkade",
-      sourceToken: "btc",
-      targetChain: "Lightning",
-      targetToken: "btc",
-      sourceAmount: escrowAmount,
-    });
-    invoiceAmount = parseInt(quote.target_amount);
-  } catch {
-    // Fallback: estimate with no fee info (user will see validation error if wrong)
-    invoiceAmount = escrowAmount;
-  }
+  const invoiceAmount = escrowAmount - LENDASWAP_FEE_SATS;
 
   show(
     "step-4-body",
-    `<p>Generate a Lightning invoice for exactly <strong>${invoiceAmount.toLocaleString()} sats</strong> and paste it below.</p>
-     <label>Lightning invoice (BOLT11)
-       <input id="ln-invoice" placeholder="lnbc..." />
+    `<p>You'll receive <strong>${invoiceAmount.toLocaleString()} sats</strong> via Lightning.</p>
+     <label>Lightning invoice or Lightning address
+       <input id="ln-dest" placeholder="lnbc… / user@wallet.com" />
      </label>
-     <br/>
+     <p style="margin-top:0.3rem; font-size:0.85rem; opacity:0.7">
+       BOLT11 invoice must be for exactly ${invoiceAmount.toLocaleString()} sats.
+       Lightning addresses resolve automatically.
+     </p>
      <button id="btn-claim">Claim via Lightning →</button>
      <div id="claim-err" class="error"></div>`,
   );
 
   $("btn-claim").addEventListener("click", async () => {
-    const invoice = ($("ln-invoice") as HTMLInputElement).value.trim();
-    if (!invoice || !invoice.toLowerCase().startsWith("ln")) {
-      show("claim-err", "Paste a valid BOLT11 Lightning invoice");
+    const raw = ($("ln-dest") as HTMLInputElement).value.trim();
+    const parsed = classifyInput(raw);
+    if (!parsed) {
+      show(
+        "claim-err",
+        "Paste a BOLT11 invoice or Lightning address (user@domain)",
+      );
       return;
     }
     ($("btn-claim") as HTMLButtonElement).disabled = true;
     show("claim-err", "");
 
     try {
-      await doClaim(tradeId, bobSk, invoice);
+      await doClaim(tradeId, bobSk, toSwapOptions(parsed, invoiceAmount));
     } catch (e: any) {
       show("claim-err", e.message);
       ($("btn-claim") as HTMLButtonElement).disabled = false;
@@ -163,15 +199,13 @@ async function showClaimForm(tradeId: string, bobSk: string) {
 async function doClaim(
   tradeId: string,
   bobSk: string,
-  lightningInvoice: string,
+  swapOptions: { lightningInvoice?: string; lightningAddress?: string; amountSats?: number },
 ) {
   // 1. Create Arkade→Lightning swap to get a VHTLC destination
   show("claim-err", "");
   showProgress("Creating Lightning swap...");
   const lsClient = await buildLendaswapClient();
-  const swap = await lsClient.createArkadeToLightningSwap({
-    lightningInvoice,
-  });
+  const swap = await lsClient.createArkadeToLightningSwap(swapOptions);
   const vhtlcAddress = swap.response.arkade_vhtlc_address;
   const swapId = swap.response.id;
 
