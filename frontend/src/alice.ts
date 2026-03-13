@@ -50,8 +50,8 @@ async function main() {
       show("create-err", "Bob pubkey must be 64 hex chars (x-only)");
       return;
     }
-    if (!amount || amount < 1000) {
-      show("create-err", "Amount must be at least 1000 sats");
+    if (!amount || amount < 333) {
+      show("create-err", "Amount must be at least 333 sats");
       return;
     }
 
