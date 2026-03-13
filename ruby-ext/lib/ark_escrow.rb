@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
-# Load the native extension (.so / .dylib / .bundle).
-# Cargo produces `libark_escrow_ruby.so` but Ruby needs the file named
-# `ark_escrow_ruby.so` so that Init_ark_escrow_ruby matches.
+# Load the native extension (.so on Linux, .bundle on macOS).
+# Cargo produces `libark_escrow_ruby.{so,dylib}` but Ruby needs the file
+# named `ark_escrow_ruby.{so,bundle}` so that Init_ark_escrow_ruby matches.
 # The build step (just build-ruby) creates the symlink.
 ws_root = File.expand_path("../..", __dir__)
 
@@ -20,4 +20,7 @@ loaded = candidates.any? do |path|
   end
 end
 
-raise LoadError, "Cannot find ark_escrow_ruby.so — run: just build-ruby" unless loaded
+unless loaded
+  ext = RUBY_PLATFORM.include?("darwin") ? ".bundle" : ".so"
+  raise LoadError, "Cannot find ark_escrow_ruby#{ext} — run: just build-ruby"
+end

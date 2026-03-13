@@ -17,12 +17,23 @@ lint: fmt clippy
 # Build the native extension for Ruby
 build-ruby:
     cargo build -p ark-escrow-ruby
-    @# Symlink without lib prefix so Ruby's Init_ function name matches
-    @cd target/debug && ln -sf libark_escrow_ruby.so ark_escrow_ruby.so
+    @# Symlink without lib prefix so Ruby's Init_ function name matches.
+    @# macOS produces .dylib, Linux produces .so — Ruby needs .bundle on macOS, .so on Linux.
+    @cd target/debug && \
+      if [ -f libark_escrow_ruby.dylib ]; then \
+        ln -sf libark_escrow_ruby.dylib ark_escrow_ruby.bundle; \
+      else \
+        ln -sf libark_escrow_ruby.so ark_escrow_ruby.so; \
+      fi
 
 build-ruby-release:
     cargo build --release -p ark-escrow-ruby
-    @cd target/release && ln -sf libark_escrow_ruby.so ark_escrow_ruby.so
+    @cd target/release && \
+      if [ -f libark_escrow_ruby.dylib ]; then \
+        ln -sf libark_escrow_ruby.dylib ark_escrow_ruby.bundle; \
+      else \
+        ln -sf libark_escrow_ruby.so ark_escrow_ruby.so; \
+      fi
 
 # Install all JS dependencies
 install:
