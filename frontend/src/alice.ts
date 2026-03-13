@@ -120,6 +120,23 @@ async function main() {
   });
 }
 
+/** Show an error with a retry button that re-runs the callback. */
+function showRetryError(
+  elementId: string,
+  message: string,
+  onRetry: () => void,
+) {
+  show(
+    elementId,
+    `<span class="error">${message}</span>
+     <br/><button id="btn-retry" style="margin-top:0.5rem">Retry</button>`,
+  );
+  $("btn-retry").addEventListener("click", () => {
+    $("btn-retry").remove();
+    onRetry();
+  });
+}
+
 /**
  * Poll the swap until the server has funded the VHTLC,
  * then auto-claim it to the escrow address and confirm on-chain.
@@ -141,7 +158,15 @@ async function waitForPaymentAndClaim(
   ];
 
   for (let i = 0; ; i++) {
-    const swap = await lsClient.getSwap(swapId, { updateStorage: true });
+    let swap;
+    try {
+      swap = await lsClient.getSwap(swapId, { updateStorage: true });
+    } catch (e: any) {
+      showRetryError("step-3-body", `Polling error: ${e.message}`, () =>
+        waitForPaymentAndClaim(lsClient, swapId, tradeId),
+      );
+      return;
+    }
     const status = swap.status;
 
     if (FUNDED_STATUSES.includes(status)) {
@@ -153,9 +178,14 @@ async function waitForPaymentAndClaim(
     }
 
     if (TERMINAL_FAIL.includes(status)) {
-      show(
+      showRetryError(
         "step-3-body",
-        `<span class="error">Swap failed: ${status}</span>`,
+        `Swap failed: ${status}`,
+        () => {
+          // Go back to step 1 so Alice can create a new trade
+          setStep(1, STEPS);
+          ($("btn-create") as HTMLButtonElement).disabled = false;
+        },
       );
       return;
     }
@@ -169,12 +199,21 @@ async function waitForPaymentAndClaim(
   }
 
   // Phase 2: claim the VHTLC → funds land at escrow address
+  await claimVhtlc(lsClient, swapId, tradeId);
+}
+
+async function claimVhtlc(
+  lsClient: Client,
+  swapId: string,
+  tradeId: string,
+) {
   show("step-3-body", "Claiming VHTLC to escrow address...");
   const claimResult = await lsClient.claim(swapId);
   if (!claimResult.success) {
-    show(
+    showRetryError(
       "step-3-body",
-      `<span class="error">Claim failed: ${claimResult.message}</span>`,
+      `Claim failed: ${claimResult.message}`,
+      () => claimVhtlc(lsClient, swapId, tradeId),
     );
     return;
   }
@@ -206,25 +245,36 @@ async function confirmFunding(tradeId: string) {
     }
   }
 
-  show("step-3-body", '<span class="error">VTXO not found after 90s</span>');
+  showRetryError(
+    "step-3-body",
+    "VTXO not found after 90s",
+    () => confirmFunding(tradeId),
+  );
 }
 
 async function goAttest(tradeId: string) {
   setStep(4, STEPS);
+  showAttestForm(tradeId);
+}
+
+function showAttestForm(tradeId: string) {
   show(
     "step-4-body",
     `<p>Confirm that the off-chain condition is met (e.g. ERC20 transfer received).</p>
-     <button id="btn-attest">Attest ✓</button>`,
+     <button id="btn-attest">Attest ✓</button>
+     <div id="attest-err" class="error"></div>`,
   );
 
   $("btn-attest").addEventListener("click", async () => {
     ($("btn-attest") as HTMLButtonElement).disabled = true;
+    show("attest-err", "");
     try {
       await api("POST", `/trades/${tradeId}/attest`);
       show("step-4-body", '<span class="info">✓ Attested</span>');
       waitForCompletion(tradeId);
     } catch (e: any) {
-      show("step-4-body", `<span class="error">${e.message}</span>`);
+      show("attest-err", e.message);
+      ($("btn-attest") as HTMLButtonElement).disabled = false;
     }
   });
 }

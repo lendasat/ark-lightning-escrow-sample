@@ -96,10 +96,10 @@ async function waitForAttestation(tradeId: string, bobSk: string) {
 
   await pollStatus(tradeId, ["attested", "releasing", "completed"]);
   show("step-3-body", '<span class="info">✓ Attested</span>');
-  signAndRelease(tradeId, bobSk);
+  showClaimForm(tradeId, bobSk);
 }
 
-async function signAndRelease(tradeId: string, bobSk: string) {
+function showClaimForm(tradeId: string, bobSk: string) {
   setStep(4, STEPS);
   show(
     "step-4-body",
@@ -123,10 +123,8 @@ async function signAndRelease(tradeId: string, bobSk: string) {
     try {
       await doClaim(tradeId, bobSk, invoice);
     } catch (e: any) {
-      show(
-        "step-4-body",
-        `<span class="error">Error: ${e.message}</span>`,
-      );
+      show("claim-err", e.message);
+      ($("btn-claim") as HTMLButtonElement).disabled = false;
     }
   });
 }
@@ -137,7 +135,8 @@ async function doClaim(
   lightningInvoice: string,
 ) {
   // 1. Create Arkade→Lightning swap to get a VHTLC destination
-  show("step-4-body", "Creating Lightning swap...");
+  show("claim-err", "");
+  showProgress("Creating Lightning swap...");
   const lsClient = await buildLendaswapClient();
   const swap = await lsClient.createArkadeToLightningSwap({
     lightningInvoice,
@@ -146,26 +145,26 @@ async function doClaim(
   const swapId = swap.response.id;
 
   // 2. Release escrow to the VHTLC address
-  show("step-4-body", "Requesting release from server...");
+  showProgress("Requesting release from server...");
   const release = await api("POST", `/trades/${tradeId}/release`, {
     bob_dest_address: vhtlcAddress,
   });
 
   // 3. Sign ark_tx
-  show("step-4-body", "Signing transaction...");
+  showProgress("Signing transaction...");
   const sk = hex.decode(bobSk);
   const arkTx = Transaction.fromPSBT(b64(release.ark_tx_psbt));
   arkTx.signIdx(sk, 0);
   const signedArkTx = toB64(arkTx.toPSBT());
 
   // 4. Submit
-  show("step-4-body", "Submitting to Arkade...");
+  showProgress("Submitting to Arkade...");
   const submitted = await api("POST", `/trades/${tradeId}/release/submit`, {
     signed_ark_tx: signedArkTx,
   });
 
   // 5. Sign checkpoints
-  show("step-4-body", "Signing checkpoints...");
+  showProgress("Signing checkpoints...");
   const signedCheckpoints = submitted.checkpoint_psbts.map((cpB64: string) => {
     const cpTx = Transaction.fromPSBT(b64(cpB64));
     cpTx.signIdx(sk, 0);
@@ -173,13 +172,11 @@ async function doClaim(
   });
 
   // 6. Finalize
-  show("step-4-body", "Finalizing release...");
+  showProgress("Finalizing release...");
   const arkTxForId = Transaction.fromPSBT(b64(release.ark_tx_psbt));
   const txId = arkTxForId.id as unknown;
   const arkTxid =
-    txId instanceof Uint8Array
-      ? hex.encode(txId)
-      : String(txId);
+    txId instanceof Uint8Array ? hex.encode(txId) : String(txId);
 
   await api("POST", `/trades/${tradeId}/release/finalize`, {
     signed_checkpoint_psbts: signedCheckpoints,
@@ -195,6 +192,14 @@ async function doClaim(
   await waitForLightningPayment(lsClient, swapId);
 }
 
+/** Show progress text below the claim form without destroying the inputs. */
+function showProgress(text: string) {
+  const err = document.getElementById("claim-err");
+  if (err) {
+    err.innerHTML = `<span style="color:inherit">${text}</span>`;
+  }
+}
+
 async function waitForLightningPayment(lsClient: Client, swapId: string) {
   setStep(5, STEPS);
   show("step-5-body", "Waiting for Lightning payment...");
@@ -208,7 +213,15 @@ async function waitForLightningPayment(lsClient: Client, swapId: string) {
   ];
 
   for (let i = 0; ; i++) {
-    const swap = await lsClient.getSwap(swapId, { updateStorage: true });
+    let swap;
+    try {
+      swap = await lsClient.getSwap(swapId, { updateStorage: true });
+    } catch (e: any) {
+      showRetryError("step-5-body", `Polling error: ${e.message}`, () =>
+        waitForLightningPayment(lsClient, swapId),
+      );
+      return;
+    }
     const status = swap.status;
 
     if (DONE.includes(status)) {
@@ -220,9 +233,10 @@ async function waitForLightningPayment(lsClient: Client, swapId: string) {
     }
 
     if (TERMINAL_FAIL.includes(status)) {
-      show(
+      showRetryError(
         "step-5-body",
-        `<span class="error">Swap failed: ${status}</span>`,
+        `Swap failed: ${status}`,
+        () => waitForLightningPayment(lsClient, swapId),
       );
       return;
     }
@@ -236,6 +250,23 @@ async function waitForLightningPayment(lsClient: Client, swapId: string) {
     show("step-5-body", label);
     await sleep(3000);
   }
+}
+
+/** Show an error with a retry button that re-runs the callback. */
+function showRetryError(
+  elementId: string,
+  message: string,
+  onRetry: () => void,
+) {
+  show(
+    elementId,
+    `<span class="error">${message}</span>
+     <br/><button id="btn-retry" style="margin-top:0.5rem">Retry</button>`,
+  );
+  $("btn-retry").addEventListener("click", () => {
+    $("btn-retry").remove();
+    onRetry();
+  });
 }
 
 main();
