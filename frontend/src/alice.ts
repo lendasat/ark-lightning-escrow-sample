@@ -9,6 +9,7 @@ import {
   getTrade,
   addressLink,
   txLink,
+  IS_MAINNET,
   LENDASWAP_URL,
   ARKADE_URL,
 } from "./common";
@@ -34,6 +35,7 @@ async function buildLendaswapClient(): Promise<Client> {
 
 async function main() {
   const { pk: alicePk } = await getOrCreateKeypair("alice");
+  ($("amount") as HTMLInputElement).value = IS_MAINNET ? "1000" : "10000";
 
   const btnCreate = $("btn-create") as HTMLButtonElement;
 
