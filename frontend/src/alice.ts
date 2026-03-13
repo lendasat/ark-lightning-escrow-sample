@@ -31,14 +31,6 @@ async function buildLendaswapClient(): Promise<Client> {
 
 async function main() {
   const { pk: alicePk } = await getOrCreateKeypair("alice");
-  $("alice-pk-display").textContent = alicePk;
-  $("keypair").style.display = "flex";
-
-  $("btn-copy-pk").addEventListener("click", () => {
-    navigator.clipboard.writeText(alicePk);
-    $("btn-copy-pk").textContent = "Copied!";
-    setTimeout(() => ($("btn-copy-pk").textContent = "Copy"), 1500);
-  });
 
   const btnCreate = $("btn-create") as HTMLButtonElement;
 
