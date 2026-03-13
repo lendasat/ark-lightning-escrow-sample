@@ -1,4 +1,4 @@
-import { api, $, setStep, show, pollStatus, getTrade, generateKeypair, addressLink } from "./common";
+import { api, $, setStep, show, pollStatus, getTrade, getOrCreateKeypair, addressLink } from "./common";
 import { Transaction } from "@arkade-os/sdk";
 import { hex } from "@scure/base";
 import "./style.css";
@@ -19,8 +19,7 @@ function toB64(u: Uint8Array): string {
 }
 
 async function main() {
-  // Generate Bob's keypair on load
-  const { sk: bobSk, pk: bobPk } = await generateKeypair();
+  const { sk: bobSk, pk: bobPk } = await getOrCreateKeypair("bob");
   $("bob-pk-display").textContent = bobPk;
   $("keypair").style.display = "flex";
 

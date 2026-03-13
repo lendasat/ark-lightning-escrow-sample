@@ -65,16 +65,36 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-/** Generate a random secp256k1 keypair. Returns {sk, pk} as hex strings. */
-export async function generateKeypair(): Promise<{ sk: string; pk: string }> {
-  // Lazy-import to avoid pulling SDK into alice.ts bundle unnecessarily
+/** Derive the x-only public key from a secret key hex string. */
+async function pubkeyFromSk(skHex: string): Promise<string> {
   const { SingleKey } = await import("@arkade-os/sdk");
+  const { hex } = await import("@scure/base");
+  const key = SingleKey.fromHex(skHex);
+  const pk = await key.xOnlyPublicKey();
+  return hex.encode(pk);
+}
+
+/**
+ * Get or create a secp256k1 keypair, persisted in localStorage under `role`.
+ * Returns the same keypair on subsequent calls / page reloads.
+ */
+export async function getOrCreateKeypair(
+  role: string,
+): Promise<{ sk: string; pk: string }> {
+  const storageKey = `escrow_sk_${role}`;
+  const existing = localStorage.getItem(storageKey);
+
+  if (existing) {
+    const pk = await pubkeyFromSk(existing);
+    return { sk: existing, pk };
+  }
+
   const { hex } = await import("@scure/base");
   const skBytes = crypto.getRandomValues(new Uint8Array(32));
   const skHex = hex.encode(skBytes);
-  const key = SingleKey.fromHex(skHex);
-  const pk = await key.xOnlyPublicKey();
-  return { sk: skHex, pk: hex.encode(pk) };
+  localStorage.setItem(storageKey, skHex);
+  const pk = await pubkeyFromSk(skHex);
+  return { sk: skHex, pk };
 }
 
 export function $(id: string): HTMLElement {

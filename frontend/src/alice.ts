@@ -5,7 +5,7 @@ import {
   show,
   pollStatus,
   sleep,
-  generateKeypair,
+  getOrCreateKeypair,
   LENDASWAP_URL,
   ARKADE_URL,
 } from "./common";
@@ -30,8 +30,7 @@ async function buildLendaswapClient(): Promise<Client> {
 }
 
 async function main() {
-  // Generate Alice's keypair on load
-  const { pk: alicePk } = await generateKeypair();
+  const { pk: alicePk } = await getOrCreateKeypair("alice");
   $("alice-pk-display").textContent = alicePk;
   $("keypair").style.display = "flex";
 
