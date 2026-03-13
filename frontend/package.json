@@ -8,7 +8,7 @@
   },
   "dependencies": {
     "@arkade-os/sdk": "^0.4.4",
-    "@lendasat/lendaswap-sdk-pure": "link:../../lendaswap2/client-sdk/ts-pure-sdk",
+    "@lendasat/lendaswap-sdk-pure": "preview",
     "@scure/base": "^2.0.0",
     "qrcode": "^1.5.4"
   },
