@@ -85,8 +85,8 @@ async function signAndRelease(tradeId: string, bobSk: string) {
 
   $("btn-claim").addEventListener("click", () => {
     const dest = ($("dest-addr") as HTMLInputElement).value.trim();
-    if (!dest || !dest.startsWith("tark")) {
-      show("claim-err", "Enter a valid Ark address");
+    if (!dest || !(dest.startsWith("ark1") || dest.startsWith("tark1"))) {
+      show("claim-err", "Enter a valid Ark address (ark1… or tark1…)");
       return;
     }
     ($("btn-claim") as HTMLButtonElement).disabled = true;
