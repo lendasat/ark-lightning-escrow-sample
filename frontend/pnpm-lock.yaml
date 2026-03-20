@@ -12,8 +12,8 @@ importers:
         specifier: ^0.4.4
         version: 0.4.4
       '@lendasat/lendaswap-sdk-pure':
-        specifier: preview
-        version: 0.2.6-preview.0
+        specifier: github:lendasat/lendaswap-sdk#feat/ark-escrow&path:ts-pure-sdk
+        version: https://codeload.github.com/lendasat/lendaswap-sdk/tar.gz/a89762a9bceacfbe9f5461ccd797c1d80c1efd8f#path:ts-pure-sdk
       '@scure/base':
         specifier: ^2.0.0
         version: 2.0.0
@@ -33,9 +33,26 @@ importers:
 
 packages:
 
-  '@arkade-os/sdk@0.3.13':
-    resolution: {integrity: sha512-eC6XGifqVf2Xu+sf/3T2duUgLiXlgh/IQXHD+v09wsu8ik/CZedH4gvQpetTjRMKti3DdY/QVLC1OQTKKWgvqQ==}
-    engines: {node: '>=20.0.0'}
+  '@arkade-os/sdk@0.4.10':
+    resolution: {integrity: sha512-7Ga7ywIDGiSfeLGyrvnJAPicOg7srcaYEdwlQOeDIWM+cmzDwKThj2KTJ2ZL50YAksoFMradAPAD+UAJs/Dwag==}
+    engines: {node: '>=22.12.0 <23', pnpm: '>=10.25.0 <11'}
+    peerDependencies:
+      '@react-native-async-storage/async-storage': '>=1.0.0'
+      expo: '>=54.0.0'
+      expo-background-task: ~1.0.10
+      expo-sqlite: ~16.0.10
+      expo-task-manager: ~14.0.9
+    peerDependenciesMeta:
+      '@react-native-async-storage/async-storage':
+        optional: true
+      expo:
+        optional: true
+      expo-background-task:
+        optional: true
+      expo-sqlite:
+        optional: true
+      expo-task-manager:
+        optional: true
 
   '@arkade-os/sdk@0.4.4':
     resolution: {integrity: sha512-vs3rZSQIBllZ7mLT7NiQGTuNr7Kx73k38O1Gfd/XlLpL8QL9eVLRNGMOz4EFoSBKyPaLEFUGMOkdtGExBO0ZTw==}
@@ -220,8 +237,9 @@ packages:
   '@kukks/bitcoin-descriptors@3.1.0':
     resolution: {integrity: sha512-7HOCZjufw3DIIDebx7/ZOeol6khkWoccM6vzee6t5bXOJoj/6ISdssEDhjxDgy88in/I39pKz+kzFukxK5eqVw==}
 
-  '@lendasat/lendaswap-sdk-pure@0.2.6-preview.0':
-    resolution: {integrity: sha512-JlZ9BdkuNVJg11pxFX+KjcDrxp/wIWR6Dac3QR5/9l9DfOS9l4CkMIVojxxKlwry1rbq8VIjdxvFBFLx0vF0eQ==}
+  '@lendasat/lendaswap-sdk-pure@https://codeload.github.com/lendasat/lendaswap-sdk/tar.gz/a89762a9bceacfbe9f5461ccd797c1d80c1efd8f#path:ts-pure-sdk':
+    resolution: {path: ts-pure-sdk, tarball: https://codeload.github.com/lendasat/lendaswap-sdk/tar.gz/a89762a9bceacfbe9f5461ccd797c1d80c1efd8f}
+    version: 0.2.7
 
   '@marcbachmann/cel-js@7.3.1':
     resolution: {integrity: sha512-P6o26TvjStT8V8+8EF+yq9Pp7ZFV00bpiUMbssr76XbIZGxaB+NNWeBp6WNxOrR9gp0JPzvJueCKHpOs5LE9PQ==}
@@ -289,66 +307,79 @@ packages:
     resolution: {integrity: sha512-t4ONHboXi/3E0rT6OZl1pKbl2Vgxf9vJfWgmUoCEVQVxhW6Cw/c8I6hbbu7DAvgp82RKiH7TpLwxnJeKv2pbsw==}
     cpu: [arm]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-arm-musleabihf@4.59.0':
     resolution: {integrity: sha512-CikFT7aYPA2ufMD086cVORBYGHffBo4K8MQ4uPS/ZnY54GKj36i196u8U+aDVT2LX4eSMbyHtyOh7D7Zvk2VvA==}
     cpu: [arm]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-arm64-gnu@4.59.0':
     resolution: {integrity: sha512-jYgUGk5aLd1nUb1CtQ8E+t5JhLc9x5WdBKew9ZgAXg7DBk0ZHErLHdXM24rfX+bKrFe+Xp5YuJo54I5HFjGDAA==}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-arm64-musl@4.59.0':
     resolution: {integrity: sha512-peZRVEdnFWZ5Bh2KeumKG9ty7aCXzzEsHShOZEFiCQlDEepP1dpUl/SrUNXNg13UmZl+gzVDPsiCwnV1uI0RUA==}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-loong64-gnu@4.59.0':
     resolution: {integrity: sha512-gbUSW/97f7+r4gHy3Jlup8zDG190AuodsWnNiXErp9mT90iCy9NKKU0Xwx5k8VlRAIV2uU9CsMnEFg/xXaOfXg==}
     cpu: [loong64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-loong64-musl@4.59.0':
     resolution: {integrity: sha512-yTRONe79E+o0FWFijasoTjtzG9EBedFXJMl888NBEDCDV9I2wGbFFfJQQe63OijbFCUZqxpHz1GzpbtSFikJ4Q==}
     cpu: [loong64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-ppc64-gnu@4.59.0':
     resolution: {integrity: sha512-sw1o3tfyk12k3OEpRddF68a1unZ5VCN7zoTNtSn2KndUE+ea3m3ROOKRCZxEpmT9nsGnogpFP9x6mnLTCaoLkA==}
     cpu: [ppc64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-ppc64-musl@4.59.0':
     resolution: {integrity: sha512-+2kLtQ4xT3AiIxkzFVFXfsmlZiG5FXYW7ZyIIvGA7Bdeuh9Z0aN4hVyXS/G1E9bTP/vqszNIN/pUKCk/BTHsKA==}
     cpu: [ppc64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-riscv64-gnu@4.59.0':
     resolution: {integrity: sha512-NDYMpsXYJJaj+I7UdwIuHHNxXZ/b/N2hR15NyH3m2qAtb/hHPA4g4SuuvrdxetTdndfj9b1WOmy73kcPRoERUg==}
     cpu: [riscv64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-riscv64-musl@4.59.0':
     resolution: {integrity: sha512-nLckB8WOqHIf1bhymk+oHxvM9D3tyPndZH8i8+35p/1YiVoVswPid2yLzgX7ZJP0KQvnkhM4H6QZ5m0LzbyIAg==}
     cpu: [riscv64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-linux-s390x-gnu@4.59.0':
     resolution: {integrity: sha512-oF87Ie3uAIvORFBpwnCvUzdeYUqi2wY6jRFWJAy1qus/udHFYIkplYRW+wo+GRUP4sKzYdmE1Y3+rY5Gc4ZO+w==}
     cpu: [s390x]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-x64-gnu@4.59.0':
     resolution: {integrity: sha512-3AHmtQq/ppNuUspKAlvA8HtLybkDflkMuLK4DPo77DfthRb71V84/c4MlWJXixZz4uruIH4uaa07IqoAkG64fg==}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   '@rollup/rollup-linux-x64-musl@4.59.0':
     resolution: {integrity: sha512-2UdiwS/9cTAx7qIUZB/fWtToJwvt0Vbo0zmnYt7ED35KPg13Q0ym1g442THLC7VyI6JfYTP4PiSOWyoMdV2/xg==}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   '@rollup/rollup-openbsd-x64@4.59.0':
     resolution: {integrity: sha512-M3bLRAVk6GOwFlPTIxVBSYKUaqfLrn8l0psKinkCFxl4lQvOSz8ZrKDz2gxcBwHFpci0B6rttydI4IpS4IS/jQ==}
@@ -574,24 +605,28 @@ packages:
     engines: {node: '>= 12.0.0'}
     cpu: [arm64]
     os: [linux]
+    libc: [glibc]
 
   lightningcss-linux-arm64-musl@1.32.0:
     resolution: {integrity: sha512-UpQkoenr4UJEzgVIYpI80lDFvRmPVg6oqboNHfoH4CQIfNA+HOrZ7Mo7KZP02dC6LjghPQJeBsvXhJod/wnIBg==}
     engines: {node: '>= 12.0.0'}
     cpu: [arm64]
     os: [linux]
+    libc: [musl]
 
   lightningcss-linux-x64-gnu@1.32.0:
     resolution: {integrity: sha512-V7Qr52IhZmdKPVr+Vtw8o+WLsQJYCTd8loIfpDaMRWGUZfBOYEJeyJIkqGIDMZPwPx24pUMfwSxxI8phr/MbOA==}
     engines: {node: '>= 12.0.0'}
     cpu: [x64]
     os: [linux]
+    libc: [glibc]
 
   lightningcss-linux-x64-musl@1.32.0:
     resolution: {integrity: sha512-bYcLp+Vb0awsiXg/80uCRezCYHNg1/l3mt0gzHnWV9XP1W5sKa5/TCdGWaR/zBM2PeF/HbsQv/j2URNOiVuxWg==}
     engines: {node: '>= 12.0.0'}
     cpu: [x64]
     os: [linux]
+    libc: [musl]
 
   lightningcss-win32-arm64-msvc@1.32.0:
     resolution: {integrity: sha512-8SbC8BR40pS6baCM8sbtYDSwEVQd4JlFTOlaD3gWGHfThTcABnNDBda6eTZeqbofalIJhFx0qKzgHJmcPTnGdw==}
@@ -837,12 +872,15 @@ packages:
 
 snapshots:
 
-  '@arkade-os/sdk@0.3.13':
+  '@arkade-os/sdk@0.4.10':
     dependencies:
+      '@kukks/bitcoin-descriptors': 3.1.0
       '@marcbachmann/cel-js': 7.3.1
       '@noble/curves': 2.0.0
       '@noble/secp256k1': 3.0.0
       '@scure/base': 2.0.0
+      '@scure/bip32': 2.0.0
+      '@scure/bip39': 2.0.1
       '@scure/btc-signer': 2.0.1
       bip68: 1.0.4
 
@@ -949,9 +987,9 @@ snapshots:
       '@scure/bip32': 2.0.1
       '@scure/btc-signer': 2.0.1
 
-  '@lendasat/lendaswap-sdk-pure@0.2.6-preview.0':
+  '@lendasat/lendaswap-sdk-pure@https://codeload.github.com/lendasat/lendaswap-sdk/tar.gz/a89762a9bceacfbe9f5461ccd797c1d80c1efd8f#path:ts-pure-sdk':
     dependencies:
-      '@arkade-os/sdk': 0.3.13
+      '@arkade-os/sdk': 0.4.10
       '@noble/curves': 2.0.1
       '@noble/hashes': 1.8.0
       '@scure/bip32': 1.7.0
@@ -961,6 +999,12 @@ snapshots:
       openapi-fetch: 0.15.2
     optionalDependencies:
       better-sqlite3: 12.6.2
+    transitivePeerDependencies:
+      - '@react-native-async-storage/async-storage'
+      - expo
+      - expo-background-task
+      - expo-sqlite
+      - expo-task-manager
 
   '@marcbachmann/cel-js@7.3.1': {}
 

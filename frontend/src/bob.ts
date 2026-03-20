@@ -12,9 +12,9 @@ import {
   LENDASWAP_URL,
   ARKADE_URL,
 } from "./common";
-import { Transaction } from "@arkade-os/sdk";
-import { hex } from "@scure/base";
 import {
+  signEscrowArkTx,
+  signEscrowCheckpoints,
   Client,
   InMemorySwapStorage,
   InMemoryWalletStorage,
@@ -23,19 +23,6 @@ import "./style.css";
 
 const STEPS = 5;
 const LENDASWAP_FEE_SATS = 1;
-
-function b64(s: string): Uint8Array {
-  const bin = atob(s);
-  const arr = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-  return arr;
-}
-
-function toB64(u: Uint8Array): string {
-  let bin = "";
-  for (let i = 0; i < u.length; i++) bin += String.fromCharCode(u[i]);
-  return btoa(bin);
-}
 
 async function buildLendaswapClient(): Promise<Client> {
   return Client.builder()
@@ -217,10 +204,10 @@ async function doClaim(
 
   // 3. Sign ark_tx
   showProgress("Signing transaction...");
-  const sk = hex.decode(bobSk);
-  const arkTx = Transaction.fromPSBT(b64(release.ark_tx_psbt));
-  arkTx.signIdx(sk, 0);
-  const signedArkTx = toB64(arkTx.toPSBT());
+  const { signedPsbt: signedArkTx, txid: arkTxid } = signEscrowArkTx(
+    release.ark_tx_psbt,
+    bobSk,
+  );
 
   // 4. Submit
   showProgress("Submitting to Arkade...");
@@ -230,18 +217,13 @@ async function doClaim(
 
   // 5. Sign checkpoints
   showProgress("Signing checkpoints...");
-  const signedCheckpoints = submitted.checkpoint_psbts.map((cpB64: string) => {
-    const cpTx = Transaction.fromPSBT(b64(cpB64));
-    cpTx.signIdx(sk, 0);
-    return toB64(cpTx.toPSBT());
-  });
+  const signedCheckpoints = signEscrowCheckpoints(
+    submitted.checkpoint_psbts,
+    bobSk,
+  );
 
   // 6. Finalize
   showProgress("Finalizing release...");
-  const arkTxForId = Transaction.fromPSBT(b64(release.ark_tx_psbt));
-  const txId = arkTxForId.id as unknown;
-  const arkTxid =
-    txId instanceof Uint8Array ? hex.encode(txId) : String(txId);
 
   await api("POST", `/trades/${tradeId}/release/finalize`, {
     signed_checkpoint_psbts: signedCheckpoints,

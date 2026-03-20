@@ -4,12 +4,19 @@
 
 Built as a showcase for HodlHodl-style bitcoin↔ERC20 trades.
 
+## Dependencies
+
+This sample uses two external SDKs:
+
+- **[ark-escrow](https://github.com/lendasat/ark-escrow)** — Rust crate + Ruby FFI for escrow contract, tx building, signing, and Arkade gRPC client
+- **[@lendasat/lendaswap-sdk-pure](https://github.com/lendasat/lendaswap-sdk/tree/feat/ark-escrow/ts-pure-sdk)** — TS SDK for Lightning swaps + escrow signing helpers
+
 ## Components
 
 ```
-escrow/          Rust library — taproot contract, tx building, signing, Arkade gRPC client
-ruby-ext/        Ruby FFI via Magnus — wraps the Rust crate for the Ruby server
+ruby-ext/        Ruby FFI via Magnus — wraps ark-escrow for the Ruby server
 sample/server/   Sinatra mock HodlHodl — trade lifecycle orchestration
+frontend/        Browser UI (Alice + Bob flows)
 e2e/             Automated end-to-end test (TS → Ruby → Rust → Arkade)
 ```
 
@@ -37,6 +44,7 @@ Six taproot leaves in a weighted Huffman tree:
 nix develop          # Rust 1.94, Ruby 3.3, Node 22, pnpm, just
 
 just build-ruby      # build the native extension
+just install         # install TS deps (frontend + e2e)
 just e2e             # run the full end-to-end test
 ```
 
@@ -46,7 +54,7 @@ just e2e             # run the full end-to-end test
 2. **Fund** — Alice sends sats to the escrow address via Arkade
 3. **Attest** — Server confirms off-chain condition (e.g. ERC20 transfer)
 4. **Release** — Server builds release tx, returns PSBTs to Bob
-5. **Sign** — Bob signs ark_tx and checkpoint PSBTs
+5. **Sign** — Bob signs ark_tx and checkpoint PSBTs using `signEscrowArkTx()` / `signEscrowCheckpoints()`
 6. **Submit + Finalize** — Server merges signatures, submits to Arkade, finalizes
 
 ## Signing protocol

@@ -17,9 +17,13 @@ import {
   DefaultVtxo,
   RestArkProvider,
   RestIndexerProvider,
-  Transaction,
   ArkAddress,
 } from "@arkade-os/sdk";
+import {
+  signEscrowArkTx,
+  signEscrowCheckpoints,
+  getArkTxid,
+} from "@lendasat/lendaswap-sdk-pure";
 import { hex } from "@scure/base";
 
 const HODLHODL_URL = process.env.HODLHODL_URL ?? "http://localhost:4567";
@@ -61,13 +65,6 @@ async function api(
 
 const hodlhodl = (m: string, p: string, b?: object) => api(HODLHODL_URL, m, p, b);
 const fulmine = (m: string, p: string, b?: object) => api(FULMINE_URL, m, p, b);
-
-function b64(b: string): Uint8Array {
-  return Buffer.from(b, "base64");
-}
-function toB64(u: Uint8Array): string {
-  return Buffer.from(u).toString("base64");
-}
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -154,10 +151,10 @@ async function main() {
 
   // 6. Bob signs the ark_tx PSBT
   console.log("6. Bob signs ark_tx...");
-  const bobSk = hex.decode(BOB_SK);
-  const arkTx = Transaction.fromPSBT(b64(release.ark_tx_psbt));
-  arkTx.signIdx(bobSk, 0);
-  const bobSignedArkTx = toB64(arkTx.toPSBT());
+  const { signedPsbt: bobSignedArkTx, txid: arkTxid } = signEscrowArkTx(
+    release.ark_tx_psbt,
+    BOB_SK,
+  );
   console.log("   done\n");
 
   // 7. Submit
@@ -173,12 +170,9 @@ async function main() {
 
   // 8. Bob signs checkpoints
   console.log("8. Bob signs checkpoints...");
-  const bobSignedCheckpoints = submitted.checkpoint_psbts.map(
-    (cpB64: string) => {
-      const cpTx = Transaction.fromPSBT(b64(cpB64));
-      cpTx.signIdx(bobSk, 0);
-      return toB64(cpTx.toPSBT());
-    },
+  const bobSignedCheckpoints = signEscrowCheckpoints(
+    submitted.checkpoint_psbts,
+    BOB_SK,
   );
   console.log("   done\n");
 
@@ -193,10 +187,6 @@ async function main() {
 
   // 9. Finalize
   console.log("9. POST /trades/:id/release/finalize");
-  const arkTxForId = Transaction.fromPSBT(b64(release.ark_tx_psbt));
-  const txId = arkTxForId.id;
-  const arkTxid = txId instanceof Uint8Array ? hex.encode(txId) : String(txId);
-
   const finalized = await hodlhodl(
     "POST",
     `/trades/${trade.trade_id}/release/finalize`,

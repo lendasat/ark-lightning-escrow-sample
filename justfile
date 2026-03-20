@@ -1,19 +1,5 @@
 set dotenv-load
 
-check:
-    cargo check
-
-test:
-    cargo test
-
-clippy:
-    cargo clippy
-
-fmt:
-    cargo fmt
-
-lint: fmt clippy
-
 # Build the native extension for Ruby
 build-ruby:
     cargo build -p ark-escrow-ruby
