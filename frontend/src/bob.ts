@@ -196,38 +196,28 @@ async function doClaim(
   const vhtlcAddress = swap.response.arkade_vhtlc_address;
   const swapId = swap.response.id;
 
-  // 2. Release escrow to the VHTLC address
+  // 2. Release escrow to the VHTLC address — server returns arbiter-signed PSBTs
   showProgress("Requesting release from server...");
   const release = await api("POST", `/trades/${tradeId}/release`, {
     bob_dest_address: vhtlcAddress,
   });
 
-  // 3. Sign ark_tx
-  showProgress("Signing transaction...");
+  // 3. Sign everything in one go (ark_tx + checkpoints)
+  showProgress("Signing transactions...");
   const { signedPsbt: signedArkTx, txid: arkTxid } = signEscrowArkTx(
     release.ark_tx_psbt,
     bobSk,
   );
-
-  // 4. Submit
-  showProgress("Submitting to Arkade...");
-  const submitted = await api("POST", `/trades/${tradeId}/release/submit`, {
-    signed_ark_tx: signedArkTx,
-  });
-
-  // 5. Sign checkpoints
-  showProgress("Signing checkpoints...");
   const signedCheckpoints = signEscrowCheckpoints(
-    submitted.checkpoint_psbts,
+    release.checkpoint_psbts,
     bobSk,
   );
 
-  // 6. Finalize
-  showProgress("Finalizing release...");
-
-  await api("POST", `/trades/${tradeId}/release/finalize`, {
-    signed_checkpoint_psbts: signedCheckpoints,
-    ark_txid: arkTxid,
+  // 4. Send all signatures back — server merges, submits, and finalizes
+  showProgress("Submitting to Arkade...");
+  await api("POST", `/trades/${tradeId}/release/sign`, {
+    signed_ark_tx: signedArkTx,
+    signed_checkpoints: signedCheckpoints,
   });
 
   show(

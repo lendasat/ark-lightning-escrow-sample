@@ -274,6 +274,11 @@ fn rb_merge_sigs(base_b64: String, other_b64: String) -> Result<String, Error> {
     Ok(psbt_to_base64(&base))
 }
 
+fn rb_ark_txid(psbt_b64: String) -> Result<String, Error> {
+    let psbt = psbt_from_base64(&psbt_b64)?;
+    Ok(psbt.unsigned_tx.compute_txid().to_string())
+}
+
 // --- Init ---
 
 #[magnus::init]
@@ -300,6 +305,7 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     module.define_module_function("sign_ark_tx", function!(rb_sign_ark_tx, 2))?;
     module.define_module_function("sign_checkpoint", function!(rb_sign_checkpoint, 2))?;
     module.define_module_function("merge_sigs", function!(rb_merge_sigs, 2))?;
+    module.define_module_function("ark_txid", function!(rb_ark_txid, 1))?;
 
     Ok(())
 }

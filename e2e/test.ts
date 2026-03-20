@@ -22,7 +22,6 @@ import {
 import {
   signEscrowArkTx,
   signEscrowCheckpoints,
-  getArkTxid,
 } from "@lendasat/lendaswap-sdk-pure";
 import { hex } from "@scure/base";
 
@@ -149,34 +148,19 @@ async function main() {
     `   status=${release.status} checkpoints=${release.checkpoint_psbts.length}\n`,
   );
 
-  // 6. Bob signs the ark_tx PSBT
-  console.log("6. Bob signs ark_tx...");
+  // 6. Bob signs everything in one go (ark_tx + checkpoints)
+  console.log("6. Bob signs ark_tx + checkpoints...");
   const { signedPsbt: bobSignedArkTx, txid: arkTxid } = signEscrowArkTx(
     release.ark_tx_psbt,
     BOB_SK,
   );
-  console.log("   done\n");
-
-  // 7. Submit
-  console.log("7. POST /trades/:id/release/submit");
-  const submitted = await hodlhodl(
-    "POST",
-    `/trades/${trade.trade_id}/release/submit`,
-    { signed_ark_tx: bobSignedArkTx },
-  );
-  console.log(
-    `   checkpoints=${submitted.checkpoint_psbts.length}\n`,
-  );
-
-  // 8. Bob signs checkpoints
-  console.log("8. Bob signs checkpoints...");
   const bobSignedCheckpoints = signEscrowCheckpoints(
-    submitted.checkpoint_psbts,
+    release.checkpoint_psbts,
     BOB_SK,
   );
   console.log("   done\n");
 
-  // Capture Bob's balance before finalizing
+  // Capture Bob's balance before submitting
   const preIndexer = new RestIndexerProvider(ARKADE_URL);
   const bobPkScriptPre = hex.encode(bobVtxo.pkScript);
   const priorVtxos = await preIndexer.getVtxos({
@@ -185,20 +169,20 @@ async function main() {
   });
   const bobPriorBalance = priorVtxos.vtxos.reduce((sum, v) => sum + v.value, 0);
 
-  // 9. Finalize
-  console.log("9. POST /trades/:id/release/finalize");
-  const finalized = await hodlhodl(
+  // 7. Send all signatures — server merges, submits, and finalizes
+  console.log("7. POST /trades/:id/release/sign");
+  const completed = await hodlhodl(
     "POST",
-    `/trades/${trade.trade_id}/release/finalize`,
+    `/trades/${trade.trade_id}/release/sign`,
     {
-      signed_checkpoint_psbts: bobSignedCheckpoints,
-      ark_txid: arkTxid,
+      signed_ark_tx: bobSignedArkTx,
+      signed_checkpoints: bobSignedCheckpoints,
     },
   );
-  console.log(`   status=${finalized.status}\n`);
+  console.log(`   status=${completed.status}\n`);
 
-  // 10. Verify Bob received funds
-  console.log("10. Verifying Bob's balance...");
+  // 8. Verify Bob received funds
+  console.log("8. Verifying Bob's balance...");
   const indexer = new RestIndexerProvider(ARKADE_URL);
   const bobPkScript = hex.encode(bobVtxo.pkScript);
   const priorBalance = bobPriorBalance; // captured before finalize

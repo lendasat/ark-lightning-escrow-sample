@@ -137,7 +137,12 @@ post "/trades/:id/attest" do
   json(trade_id: trade[:id], status: "attested")
 end
 
-# Build release tx — returns PSBT for Bob to sign
+# Build release tx — returns arbiter-signed PSBTs for Bob to co-sign.
+#
+# The arbiter signs both the ark_tx and checkpoints up-front so that Bob can
+# sign everything in a single round-trip. Unsigned checkpoints are kept
+# separately — they are what we send to Arkade during submit (we never reveal
+# our checkpoint signatures to the server before it co-signs the ark_tx).
 post "/trades/:id/release" do
   trade = find_trade!(params[:id])
   assert_status!(trade, "attested")
@@ -158,73 +163,66 @@ post "/trades/:id/release" do
     fee_dest ? fee_sats : nil,
   )
 
-  # Arbiter signs the ark_tx
-  arbiter_signed = ArkEscrow.sign_ark_tx(ark_tx_b64, ARBITER_SK)
+  # Keep unsigned checkpoints — these go to Arkade at submit time
+  trade[:unsigned_checkpoint_txs_b64] = checkpoint_txs_b64
 
-  trade[:ark_tx_b64] = arbiter_signed
-  trade[:checkpoint_txs_b64] = checkpoint_txs_b64
+  # Arbiter signs everything
+  arbiter_signed_ark_tx = ArkEscrow.sign_ark_tx(ark_tx_b64, ARBITER_SK)
+  arbiter_signed_checkpoints = checkpoint_txs_b64.map do |cp|
+    ArkEscrow.sign_checkpoint(cp, ARBITER_SK)
+  end
+
+  trade[:arbiter_signed_ark_tx_b64] = arbiter_signed_ark_tx
+  trade[:arbiter_signed_checkpoint_txs_b64] = arbiter_signed_checkpoints
   trade[:status] = "releasing"
 
   json(
     trade_id: trade[:id],
     status: "releasing",
-    ark_tx_psbt: arbiter_signed,
-    checkpoint_psbts: checkpoint_txs_b64,
-  )
-end
-
-# Submit Bob's signed PSBT → submit to Arkade
-post "/trades/:id/release/submit" do
-  trade = find_trade!(params[:id])
-  assert_status!(trade, "releasing")
-
-  body = JSON.parse(request.body.read)
-  bob_signed_b64 = body["signed_ark_tx"]
-  halt 400, json(error: "missing signed_ark_tx") unless bob_signed_b64
-
-  # Merge Bob's sigs with arbiter's
-  merged = ArkEscrow.merge_sigs(trade[:ark_tx_b64], bob_signed_b64)
-
-  # Submit to Arkade
-  begin
-    server_checkpoints = CLIENT.submit_release(merged, trade[:checkpoint_txs_b64])
-  rescue => e
-    halt 500, json(error: "submit failed: #{e.message}")
-  end
-
-  # Arbiter signs each checkpoint
-  arbiter_signed_checkpoints = server_checkpoints.map do |cp|
-    ArkEscrow.sign_checkpoint(cp, ARBITER_SK)
-  end
-
-  trade[:server_checkpoint_txs_b64] = arbiter_signed_checkpoints
-
-  json(
-    trade_id: trade[:id],
+    ark_tx_psbt: arbiter_signed_ark_tx,
     checkpoint_psbts: arbiter_signed_checkpoints,
   )
 end
 
-# Finalize — Bob's signed checkpoints → finalize on Arkade
-post "/trades/:id/release/finalize" do
+# Complete release — Bob's co-signed PSBTs → merge, submit, finalize.
+#
+# 1. Merge ark_tx signatures (arbiter + Bob)
+# 2. Submit merged ark_tx + UNSIGNED checkpoints to Arkade
+#    (never leak checkpoint sigs before server co-signs the ark_tx)
+# 3. Arkade returns server-signed checkpoints
+# 4. Merge arbiter + Bob checkpoint sigs into the server-signed copies
+# 5. Finalize with fully-signed checkpoints
+post "/trades/:id/release/sign" do
   trade = find_trade!(params[:id])
   assert_status!(trade, "releasing")
 
   body = JSON.parse(request.body.read)
-  bob_signed_checkpoints = body["signed_checkpoint_psbts"]
-  halt 400, json(error: "missing signed_checkpoint_psbts") unless bob_signed_checkpoints
+  bob_signed_ark_tx = body["signed_ark_tx"]
+  bob_signed_checkpoints = body["signed_checkpoints"]
+  halt 400, json(error: "missing signed_ark_tx") unless bob_signed_ark_tx
+  halt 400, json(error: "missing signed_checkpoints") unless bob_signed_checkpoints
 
-  # Merge Bob's checkpoint sigs with arbiter's
-  final_checkpoints = trade[:server_checkpoint_txs_b64].zip(bob_signed_checkpoints).map do |arb, bob|
-    ArkEscrow.merge_sigs(arb, bob)
+  # 1. Merge ark_tx: arbiter + Bob
+  merged_ark_tx = ArkEscrow.merge_sigs(trade[:arbiter_signed_ark_tx_b64], bob_signed_ark_tx)
+
+  # 2. Submit to Arkade with UNSIGNED checkpoints only
+  begin
+    server_checkpoints = CLIENT.submit_release(merged_ark_tx, trade[:unsigned_checkpoint_txs_b64])
+  rescue => e
+    halt 500, json(error: "submit failed: #{e.message}")
   end
 
-  # Compute the ark txid from the merged ark_tx PSBT
-  # For now, pass the txid from the ark_tx
-  # TODO: extract txid from PSBT properly
-  ark_txid = body["ark_txid"]
-  halt 400, json(error: "missing ark_txid") unless ark_txid
+  # 3. Merge arbiter checkpoint sigs into server-signed checkpoints
+  final_checkpoints = server_checkpoints.zip(
+    trade[:arbiter_signed_checkpoint_txs_b64],
+    bob_signed_checkpoints,
+  ).map do |server_cp, arbiter_cp, bob_cp|
+    merged = ArkEscrow.merge_sigs(server_cp, arbiter_cp)
+    ArkEscrow.merge_sigs(merged, bob_cp)
+  end
 
+  # 4. Extract ark txid and finalize
+  ark_txid = ArkEscrow.ark_txid(merged_ark_tx)
   CLIENT.finalize_release(ark_txid, final_checkpoints)
 
   trade[:status] = "completed"

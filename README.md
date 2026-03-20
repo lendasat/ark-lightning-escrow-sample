@@ -53,19 +53,29 @@ just e2e             # run the full end-to-end test
 1. **Create** — TS client sends Alice + Bob pubkeys → server builds escrow contract, returns address
 2. **Fund** — Alice sends sats to the escrow address via Arkade
 3. **Attest** — Server confirms off-chain condition (e.g. ERC20 transfer)
-4. **Release** — Server builds release tx, returns PSBTs to Bob
-5. **Sign** — Bob signs ark_tx and checkpoint PSBTs using `signEscrowArkTx()` / `signEscrowCheckpoints()`
-6. **Submit + Finalize** — Server merges signatures, submits to Arkade, finalizes
+4. **Release** — Arbiter builds release tx, signs everything, returns PSBTs to Bob
+5. **Sign** — Bob signs all PSBTs in one round (`signEscrowArkTx()` + `signEscrowCheckpoints()`)
+6. **Complete** — Arbiter merges signatures, submits to Arkade, finalizes
 
-## Signing protocol
+## Signing protocol (single client round-trip)
 
 ```
-Server (arbiter) signs ark_tx  ──┐
-Bob signs ark_tx                 ├─► merge → submit to Arkade
-                                 │
-Arkade returns server-signed     │
-checkpoint PSBTs                 │
-                                 │
-Server signs checkpoints  ───────┤
-Bob signs checkpoints            ├─► merge → finalize on Arkade
+  Arbiter                          Bob                          Arkade
+    │                               │                             │
+    │ build + sign ark_tx           │                             │
+    │ + sign checkpoints            │                             │
+    │── all PSBTs ─────────────────>│                             │
+    │<── all signed ────────────────│  (single round)             │
+    │                               │                             │
+    │ merge ark_tx sigs             │                             │
+    │ submit(ark_tx, UNSIGNED cps) ─────────────────────────────>│
+    │<──────────── server-signed cps ────────────────────────────│
+    │                               │                             │
+    │ merge all cp sigs             │                             │
+    │ finalize(txid, merged cps) ───────────────────────────────>│
 ```
+
+**Security invariant**: checkpoint signatures are never sent to Arkade before
+the server co-signs the ark_tx. Only unsigned checkpoints go in the `submit`
+call; arbiter + Bob checkpoint sigs are merged into the server-signed copies
+afterwards.
