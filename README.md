@@ -2,7 +2,7 @@
 
 2-of-3 Bitcoin escrow on [Arkade](https://arkade.fun) (Ark protocol). Any two of {Alice, Bob, Arbiter} can spend; the Arkade server co-signs collaborative paths.
 
-Built as a showcase for HodlHodl-style bitcoin↔ERC20 trades.
+Built as a showcase for escrow-style bitcoin↔ERC20 trades.
 
 ## Dependencies
 
@@ -15,7 +15,7 @@ This sample uses two external SDKs:
 
 ```
 ruby-ext/        Ruby FFI via Magnus — wraps ark-escrow for the Ruby server
-sample/server/   Sinatra mock HodlHodl — trade lifecycle orchestration
+sample/server/   Sinatra Arbiter server — trade lifecycle orchestration
 frontend/        Browser UI (Alice + Bob flows)
 e2e/             Automated end-to-end test (TS → Ruby → Rust → Arkade)
 ```

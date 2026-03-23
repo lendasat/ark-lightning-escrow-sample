@@ -1,4 +1,4 @@
-const HODLHODL_URL = import.meta.env.VITE_HODLHODL_URL ?? "http://localhost:4567";
+const ARBITER_URL = import.meta.env.VITE_ARBITER_URL ?? "http://localhost:4567";
 const EXPLORER_URL = import.meta.env.VITE_EXPLORER_URL ?? "";
 export const LENDASWAP_URL = import.meta.env.VITE_LENDASWAP_URL ?? "http://localhost:7071";
 export const ARKADE_URL = import.meta.env.VITE_ARKADE_URL ?? "http://localhost:7070";
@@ -25,7 +25,7 @@ export async function api(
   path: string,
   body?: object,
 ): Promise<any> {
-  const res = await fetch(`${HODLHODL_URL}${path}`, {
+  const res = await fetch(`${ARBITER_URL}${path}`, {
     method,
     headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,

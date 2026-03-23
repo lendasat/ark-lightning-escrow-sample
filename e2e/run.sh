@@ -28,7 +28,7 @@ curl -sf http://localhost:7001/api/v1/wallet/status >/dev/null 2>&1 || die "fulm
 
 # --- Fixed keys for the test ---
 
-# Arbiter (HodlHodl) — deterministic key for the test
+# Arbiter — deterministic key for the test
 ARBITER_SK="0000000000000000000000000000000000000000000000000000000000000001"
 
 # Bob — deterministic key for the test
@@ -53,12 +53,12 @@ logok "TS dependencies installed"
 
 # --- Start Ruby server ---
 
-log "Starting HodlHodl mock server..."
+log "Starting Arbiter server..."
 cd sample/server
 ARBITER_SK="$ARBITER_SK" \
   UNILATERAL_EXIT_DELAY=512 \
   FEE_RATE=0 \
-  bundle exec ruby hodlhodl.rb -o 127.0.0.1 -p 4567 >"$ROOT/e2e/server.log" 2>&1 &
+  bundle exec ruby arbiter.rb -o 127.0.0.1 -p 4567 >"$ROOT/e2e/server.log" 2>&1 &
 SERVER_PID=$!
 cd "$ROOT"
 

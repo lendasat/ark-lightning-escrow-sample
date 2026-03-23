@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# HodlHodl mock server — orchestrates escrow trades using the ark_escrow gem.
+# Arbiter server — orchestrates escrow trades using the ark_escrow gem.
 #
 # Trade states: created → funded → attested → releasing → completed
 
@@ -247,7 +247,7 @@ end
 
 ARBITER_SK_PK = compute_xonly_pk(ARBITER_SK)
 
-puts "HodlHodl mock server starting..."
+puts "Arbiter server starting..."
 puts "  Arkade URL: #{ARKADE_URL}"
 puts "  Arbiter PK: #{ARBITER_SK_PK}"
 puts "  Network:    #{NETWORK}"

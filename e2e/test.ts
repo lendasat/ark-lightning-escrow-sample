@@ -2,14 +2,14 @@
  * Automated e2e test: TS client → Ruby/Magnus server → Rust escrow → Arkade
  *
  * Exercises the full stack:
- *   1. TS creates a trade via HodlHodl Ruby server
+ *   1. TS creates a trade via Arbiter Ruby server
  *   2. Fulmine (Alice) funds the escrow address
- *   3. HodlHodl attests, builds release tx (Ruby → Rust → Arkade)
+ *   3. Arbiter attests, builds release tx (Ruby → Rust → Arkade)
  *   4. Bob signs PSBTs using @arkade-os/sdk (TS)
- *   5. HodlHodl submits + finalizes (Ruby → Rust → Arkade)
+ *   5. Arbiter submits + finalizes (Ruby → Rust → Arkade)
  *   6. Verify Bob received the funds
  *
- * Env: HODLHODL_URL, ARKADE_URL, FULMINE_URL, BOB_SK
+ * Env: ARBITER_URL, ARKADE_URL, FULMINE_URL, BOB_SK
  */
 
 import {
@@ -25,7 +25,7 @@ import {
 } from "@lendasat/lendaswap-sdk-pure";
 import { hex } from "@scure/base";
 
-const HODLHODL_URL = process.env.HODLHODL_URL ?? "http://localhost:4567";
+const ARBITER_URL = process.env.ARBITER_URL ?? "http://localhost:4567";
 const ARKADE_URL = process.env.ARKADE_URL ?? "http://localhost:7070";
 const FULMINE_URL = process.env.FULMINE_URL ?? "http://localhost:7001";
 const BOB_SK = process.env.BOB_SK;
@@ -62,7 +62,7 @@ async function api(
   return JSON.parse(text);
 }
 
-const hodlhodl = (m: string, p: string, b?: object) => api(HODLHODL_URL, m, p, b);
+const arbiter = (m: string, p: string, b?: object) => api(ARBITER_URL, m, p, b);
 const fulmine = (m: string, p: string, b?: object) => api(FULMINE_URL, m, p, b);
 
 function sleep(ms: number) {
@@ -91,7 +91,7 @@ async function main() {
 
   // 1. Create trade
   console.log("1. POST /trades");
-  const trade = await hodlhodl("POST", "/trades", {
+  const trade = await arbiter("POST", "/trades", {
     alice_pk: aliceXonlyHex,
     bob_pk: bobPkHex,
   });
@@ -111,7 +111,7 @@ async function main() {
   for (let attempt = 0; attempt < 15; attempt++) {
     await sleep(2000);
     try {
-      funded = await hodlhodl("POST", `/trades/${trade.trade_id}/fund`);
+      funded = await arbiter("POST", `/trades/${trade.trade_id}/fund`);
       break;
     } catch (e: any) {
       if (attempt === 14) throw e;
@@ -122,7 +122,7 @@ async function main() {
 
   // 4. Attest
   console.log("4. POST /trades/:id/attest");
-  const attested = await hodlhodl("POST", `/trades/${trade.trade_id}/attest`);
+  const attested = await arbiter("POST", `/trades/${trade.trade_id}/attest`);
   console.log(`   status=${attested.status}\n`);
 
   // 5. Build release — Bob needs a destination address
@@ -141,7 +141,7 @@ async function main() {
   const bobDest = new ArkAddress(serverXonly, bobVtxo.tweakedPublicKey, "tark").encode();
 
   console.log("5. POST /trades/:id/release");
-  const release = await hodlhodl("POST", `/trades/${trade.trade_id}/release`, {
+  const release = await arbiter("POST", `/trades/${trade.trade_id}/release`, {
     bob_dest_address: bobDest,
   });
   console.log(
@@ -171,7 +171,7 @@ async function main() {
 
   // 7. Send all signatures — server merges, submits, and finalizes
   console.log("7. POST /trades/:id/release/sign");
-  const completed = await hodlhodl(
+  const completed = await arbiter(
     "POST",
     `/trades/${trade.trade_id}/release/sign`,
     {
