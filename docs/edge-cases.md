@@ -15,7 +15,7 @@ A list of things outside the happy path.
 - Once the offchain transaction has been registered with the server, if the finalization doesn't happen (transient error), one cannot just use the same VTXO as an input in another offchain transaction.
 - To retry one has to use the `GetPendingTxs` API on the Arkade server/indexer. That returns the original Arkade transaction + checkpoint transactions, and the arbiter can retry finalization.
 
-_Our libraries should help you with this. To be implemented._
+_`ark-escrow` now covers this._
 
 ## Escrow contract expires and becomes recoverable
 

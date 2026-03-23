@@ -18,6 +18,7 @@ require "ark_escrow"
 ARKADE_URL = ENV.fetch("ARKADE_URL", "http://localhost:7070")
 ARBITER_SK = ENV.fetch("ARBITER_SK") # hex-encoded secret key
 NETWORK = ENV.fetch("NETWORK", "regtest")
+SPEND_STORE_DIR = ENV.fetch("SPEND_STORE_DIR", "/tmp/ark-escrow-pending")
 
 # Fee as percentage of escrow amount (e.g., "0.01" = 1%)
 FEE_RATE = ENV.fetch("FEE_RATE", "0.01").to_f
@@ -27,7 +28,7 @@ FEE_ADDRESS = ENV.fetch("FEE_ADDRESS", nil)
 # --- State ---
 
 TRADES = {}
-CLIENT = ArkEscrow::Client.new(ARKADE_URL)
+CLIENT = ArkEscrow::Client.new(ARKADE_URL, SPEND_STORE_DIR)
 
 configure do
   CLIENT.connect
@@ -186,12 +187,12 @@ end
 
 # Complete release — Bob's co-signed PSBTs → merge, submit, finalize.
 #
-# 1. Merge ark_tx signatures (arbiter + Bob)
-# 2. Submit merged ark_tx + UNSIGNED checkpoints to Arkade
-#    (never leak checkpoint sigs before server co-signs the ark_tx)
-# 3. Arkade returns server-signed checkpoints
-# 4. Merge arbiter + Bob checkpoint sigs into the server-signed copies
-# 5. Finalize with fully-signed checkpoints
+# The `finalize_release` method on the client handles:
+# 1. Submitting the merged ark_tx + unsigned checkpoints to Arkade
+# 2. Persisting the pending state (crash recovery)
+# 3. Merging all checkpoint signatures (server + each party)
+# 4. Finalizing the offchain transaction
+# 5. Cleaning up the pending state
 post "/trades/:id/release/sign" do
   trade = find_trade!(params[:id])
   assert_status!(trade, "releasing")
@@ -202,28 +203,22 @@ post "/trades/:id/release/sign" do
   halt 400, json(error: "missing signed_ark_tx") unless bob_signed_ark_tx
   halt 400, json(error: "missing signed_checkpoints") unless bob_signed_checkpoints
 
-  # 1. Merge ark_tx: arbiter + Bob
+  # Merge ark_tx signatures: arbiter + Bob
   merged_ark_tx = ArkEscrow.merge_sigs(trade[:arbiter_signed_ark_tx_b64], bob_signed_ark_tx)
 
-  # 2. Submit to Arkade with UNSIGNED checkpoints only
+  # Guarded finalize: submit → persist → merge checkpoints → finalize → cleanup.
+  # On crash between submit and finalize, the next call with the same trade ID
+  # will resume from the persisted state.
   begin
-    server_checkpoints = CLIENT.submit_release(merged_ark_tx, trade[:unsigned_checkpoint_txs_b64])
+    ark_txid = CLIENT.spend_escrow_offchain(
+      trade[:id],
+      merged_ark_tx,
+      trade[:unsigned_checkpoint_txs_b64],
+      [trade[:arbiter_signed_checkpoint_txs_b64], bob_signed_checkpoints],
+    )
   rescue => e
-    halt 500, json(error: "submit failed: #{e.message}")
+    halt 500, json(error: "finalize failed: #{e.message}")
   end
-
-  # 3. Merge arbiter checkpoint sigs into server-signed checkpoints
-  final_checkpoints = server_checkpoints.zip(
-    trade[:arbiter_signed_checkpoint_txs_b64],
-    bob_signed_checkpoints,
-  ).map do |server_cp, arbiter_cp, bob_cp|
-    merged = ArkEscrow.merge_sigs(server_cp, arbiter_cp)
-    ArkEscrow.merge_sigs(merged, bob_cp)
-  end
-
-  # 4. Extract ark txid and finalize
-  ark_txid = ArkEscrow.ark_txid(merged_ark_tx)
-  CLIENT.finalize_release(ark_txid, final_checkpoints)
 
   trade[:status] = "completed"
   trade[:release_txid] = ark_txid
