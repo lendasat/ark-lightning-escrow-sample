@@ -15,6 +15,7 @@ import {
 import {
   signEscrowArkTx,
   signEscrowCheckpoints,
+  signEscrowDelegate,
   Client,
   InMemorySwapStorage,
   InMemoryWalletStorage,
@@ -196,34 +197,59 @@ async function doClaim(
   const vhtlcAddress = swap.response.arkade_vhtlc_address;
   const swapId = swap.response.id;
 
-  // 2. Release escrow to the VHTLC address — server returns arbiter-signed PSBTs
+  // 2. Release escrow to the VHTLC address — server checks VTXO status and
+  //    returns either offchain PSBTs or delegate PSBTs.
   showProgress("Requesting release from server...");
   const release = await api("POST", `/trades/${tradeId}/release`, {
     bob_dest_address: vhtlcAddress,
   });
 
-  // 3. Sign everything in one go (ark_tx + checkpoints)
-  showProgress("Signing transactions...");
-  const { signedPsbt: signedArkTx, txid: arkTxid } = signEscrowArkTx(
-    release.ark_tx_psbt,
-    bobSk,
-  );
-  const signedCheckpoints = signEscrowCheckpoints(
-    release.checkpoint_psbts,
-    bobSk,
-  );
+  if (release.mode === "delegate") {
+    // --- Delegate settlement path (recoverable VTXO) ---
+    showProgress("Signing delegate PSBTs...");
+    const { signedIntentProof, signedForfeitPsbts } = await signEscrowDelegate(
+      release.intent_proof_psbt,
+      release.forfeit_psbts,
+      bobSk,
+    );
 
-  // 4. Send all signatures back — server merges, submits, and finalizes
-  showProgress("Submitting to Arkade...");
-  await api("POST", `/trades/${tradeId}/release/sign`, {
-    signed_ark_tx: signedArkTx,
-    signed_checkpoints: signedCheckpoints,
-  });
+    showProgress("Settling via Arkade batch (this may take ~30s)...");
+    const settleResult = await api(
+      "POST",
+      `/trades/${tradeId}/release/settle`,
+      {
+        signed_intent_proof: signedIntentProof,
+        signed_forfeit_psbts: signedForfeitPsbts,
+      },
+    );
 
-  show(
-    "step-4-body",
-    `<span class="info">✓ Escrow released to swap VHTLC — tx: ${txLink(arkTxid)}</span>`,
-  );
+    show(
+      "step-4-body",
+      `<span class="info">✓ Escrow settled via delegate — commitment: ${txLink(settleResult.commitment_txid)}</span>`,
+    );
+  } else {
+    // --- Offchain path (spendable VTXO, existing flow) ---
+    showProgress("Signing transactions...");
+    const { signedPsbt: signedArkTx, txid: arkTxid } = signEscrowArkTx(
+      release.ark_tx_psbt,
+      bobSk,
+    );
+    const signedCheckpoints = signEscrowCheckpoints(
+      release.checkpoint_psbts,
+      bobSk,
+    );
+
+    showProgress("Submitting to Arkade...");
+    await api("POST", `/trades/${tradeId}/release/sign`, {
+      signed_ark_tx: signedArkTx,
+      signed_checkpoints: signedCheckpoints,
+    });
+
+    show(
+      "step-4-body",
+      `<span class="info">✓ Escrow released to swap VHTLC — tx: ${txLink(arkTxid)}</span>`,
+    );
+  }
 
   // 7. Wait for lendaswap to complete the Lightning payment
   await waitForLightningPayment(lsClient, swapId);

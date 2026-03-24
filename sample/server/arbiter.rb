@@ -25,6 +25,14 @@ FEE_RATE = ENV.fetch("FEE_RATE", "0.01").to_f
 # Arbiter's Arkade address for fee collection
 FEE_ADDRESS = ENV.fetch("FEE_ADDRESS", nil)
 
+# Delegate cosigner secret key — used for batch ceremony delegation.
+# Defaults to a deterministic derivation from the arbiter key for simplicity.
+# In production, derive via HD wallet (BIP-32).
+DELEGATE_COSIGNER_SK = ENV.fetch("DELEGATE_COSIGNER_SK", ARBITER_SK)
+
+# Force delegate settlement even when VTXOs are spendable (for testing).
+FORCE_DELEGATE = ENV.fetch("FORCE_DELEGATE", "0") == "1"
+
 # --- State ---
 
 TRADES = {}
@@ -138,12 +146,15 @@ post "/trades/:id/attest" do
   json(trade_id: trade[:id], status: "attested")
 end
 
-# Build release tx — returns arbiter-signed PSBTs for Bob to co-sign.
+# Build release — checks VTXO status and returns either offchain or delegate
+# PSBTs.
 #
-# The arbiter signs both the ark_tx and checkpoints up-front so that Bob can
-# sign everything in a single round-trip. Unsigned checkpoints are kept
-# separately — they are what we send to Arkade during submit (we never reveal
-# our checkpoint signatures to the server before it co-signs the ark_tx).
+# If the escrow VTXO is spendable: returns mode "offchain" with arbiter-signed
+# ark_tx + checkpoint PSBTs (existing flow).
+#
+# If the escrow VTXO is recoverable: returns mode "delegate" with unsigned
+# delegate PSBTs (intent + forfeits) that Bob must sign, then POST to
+# /release/settle.
 post "/trades/:id/release" do
   trade = find_trade!(params[:id])
   assert_status!(trade, "attested")
@@ -155,34 +166,76 @@ post "/trades/:id/release" do
   fee_sats = (trade[:escrow_amount] * FEE_RATE).to_i
   fee_dest = FEE_ADDRESS && fee_sats > 0 ? FEE_ADDRESS : nil
 
-  ark_tx_b64, checkpoint_txs_b64 = CLIENT.build_release(
-    trade[:contract],
-    trade[:escrow_outpoint],
-    trade[:escrow_amount],
-    bob_dest,
-    fee_dest,
-    fee_dest ? fee_sats : nil,
-  )
+  # Check VTXO status to decide offchain vs delegate
+  vtxos_data, any_recoverable = CLIENT.find_escrow_vtxos(trade[:contract])
+  halt 404, json(error: "no escrow VTXOs found") if vtxos_data.empty?
 
-  # Keep unsigned checkpoints — these go to Arkade at submit time
-  trade[:unsigned_checkpoint_txs_b64] = checkpoint_txs_b64
+  use_delegate = any_recoverable || FORCE_DELEGATE
+  puts "  VTXO status: any_recoverable=#{any_recoverable}, force=#{FORCE_DELEGATE}, using #{use_delegate ? 'delegate' : 'offchain'}"
 
-  # Arbiter signs everything
-  arbiter_signed_ark_tx = ArkEscrow.sign_ark_tx(ark_tx_b64, ARBITER_SK)
-  arbiter_signed_checkpoints = checkpoint_txs_b64.map do |cp|
-    ArkEscrow.sign_checkpoint(cp, ARBITER_SK)
+  if use_delegate
+    # --- Delegate path ---
+    intent_proof_b64, intent_message_json, forfeit_psbts_b64, cosigner_pk_hex =
+      CLIENT.prepare_release_delegate(
+        trade[:contract],
+        vtxos_data,
+        bob_dest,
+        fee_dest,
+        fee_dest ? fee_sats : nil,
+        DELEGATE_COSIGNER_SK,
+      )
+
+    # Arbiter signs the delegate PSBTs
+    arbiter_signed_intent, arbiter_signed_forfeits =
+      ArkEscrow.sign_delegate(intent_proof_b64, forfeit_psbts_b64, ARBITER_SK)
+
+    trade[:delegate_intent_b64] = arbiter_signed_intent
+    trade[:delegate_intent_message_json] = intent_message_json
+    trade[:delegate_forfeit_psbts_b64] = arbiter_signed_forfeits
+    trade[:delegate_cosigner_pk_hex] = cosigner_pk_hex
+    trade[:status] = "releasing_delegate"
+
+    json(
+      trade_id: trade[:id],
+      status: "releasing_delegate",
+      mode: "delegate",
+      cosigner_pk: cosigner_pk_hex,
+      intent_message: intent_message_json,
+      intent_proof_psbt: arbiter_signed_intent,
+      forfeit_psbts: arbiter_signed_forfeits,
+    )
+  else
+    # --- Offchain path (existing) ---
+    ark_tx_b64, checkpoint_txs_b64 = CLIENT.build_release(
+      trade[:contract],
+      trade[:escrow_outpoint],
+      trade[:escrow_amount],
+      bob_dest,
+      fee_dest,
+      fee_dest ? fee_sats : nil,
+    )
+
+    # Keep unsigned checkpoints — these go to Arkade at submit time
+    trade[:unsigned_checkpoint_txs_b64] = checkpoint_txs_b64
+
+    # Arbiter signs everything
+    arbiter_signed_ark_tx = ArkEscrow.sign_ark_tx(ark_tx_b64, ARBITER_SK)
+    arbiter_signed_checkpoints = checkpoint_txs_b64.map do |cp|
+      ArkEscrow.sign_checkpoint(cp, ARBITER_SK)
+    end
+
+    trade[:arbiter_signed_ark_tx_b64] = arbiter_signed_ark_tx
+    trade[:arbiter_signed_checkpoint_txs_b64] = arbiter_signed_checkpoints
+    trade[:status] = "releasing_offchain"
+
+    json(
+      trade_id: trade[:id],
+      status: "releasing_offchain",
+      mode: "offchain",
+      ark_tx_psbt: arbiter_signed_ark_tx,
+      checkpoint_psbts: arbiter_signed_checkpoints,
+    )
   end
-
-  trade[:arbiter_signed_ark_tx_b64] = arbiter_signed_ark_tx
-  trade[:arbiter_signed_checkpoint_txs_b64] = arbiter_signed_checkpoints
-  trade[:status] = "releasing"
-
-  json(
-    trade_id: trade[:id],
-    status: "releasing",
-    ark_tx_psbt: arbiter_signed_ark_tx,
-    checkpoint_psbts: arbiter_signed_checkpoints,
-  )
 end
 
 # Complete release — Bob's co-signed PSBTs → merge, submit, finalize.
@@ -195,7 +248,7 @@ end
 # 5. Cleaning up the pending state
 post "/trades/:id/release/sign" do
   trade = find_trade!(params[:id])
-  assert_status!(trade, "releasing")
+  assert_status!(trade, "releasing_offchain")
 
   body = JSON.parse(request.body.read)
   bob_signed_ark_tx = body["signed_ark_tx"]
@@ -223,6 +276,45 @@ post "/trades/:id/release/sign" do
   trade[:status] = "completed"
   trade[:release_txid] = ark_txid
   json(trade_id: trade[:id], status: "completed", release_txid: ark_txid)
+end
+
+# Complete delegate settlement — Bob's co-signed delegate PSBTs → batch ceremony.
+#
+# Bob signs the delegate PSBTs (intent + forfeits) returned by /release, then
+# POSTs them here. The arbiter merges signatures, cosigns as delegate, and
+# runs the Arkade batch ceremony (~10-30s).
+post "/trades/:id/release/settle" do
+  trade = find_trade!(params[:id])
+  assert_status!(trade, "releasing_delegate")
+
+  body = JSON.parse(request.body.read)
+  bob_signed_intent = body["signed_intent_proof"]
+  bob_signed_forfeits = body["signed_forfeit_psbts"]
+  halt 400, json(error: "missing signed_intent_proof") unless bob_signed_intent
+  halt 400, json(error: "missing signed_forfeit_psbts") unless bob_signed_forfeits
+
+  # Merge arbiter + Bob signatures on intent
+  merged_intent = ArkEscrow.merge_sigs(trade[:delegate_intent_b64], bob_signed_intent)
+
+  # Merge arbiter + Bob signatures on forfeits
+  merged_forfeits = trade[:delegate_forfeit_psbts_b64].zip(bob_signed_forfeits).map do |arb, bob|
+    ArkEscrow.merge_sigs(arb, bob)
+  end
+
+  begin
+    commitment_txid = CLIENT.settle_delegate(
+      merged_intent,
+      trade[:delegate_intent_message_json],
+      merged_forfeits,
+      DELEGATE_COSIGNER_SK,
+    )
+  rescue => e
+    halt 500, json(error: "delegate settlement failed: #{e.message}")
+  end
+
+  trade[:status] = "completed"
+  trade[:release_txid] = commitment_txid
+  json(trade_id: trade[:id], status: "completed", commitment_txid: commitment_txid)
 end
 
 # --- Compute arbiter public key from secret key ---

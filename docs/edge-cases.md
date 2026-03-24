@@ -23,7 +23,7 @@ _`ark-escrow` now covers this._
 - To optimise this we use a delegate approach (Arkade implementation detail).
 - It's just another mode of *spending* in Arkade.
 
-_Our libraries should help you with this. To be implemented._
+_`ark-escrow` + `@lendasat/lendaswap-sdk-pure` now cover this._
 
 ## Boltz fails to pay exit Lightning invoice
 
