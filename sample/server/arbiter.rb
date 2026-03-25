@@ -157,7 +157,9 @@ end
 # /release/settle.
 post "/trades/:id/release" do
   trade = find_trade!(params[:id])
-  assert_status!(trade, "attested")
+  unless ["attested", "releasing_offchain", "releasing_delegate"].include?(trade[:status])
+    halt 409, json(error: "expected status attested or releasing_*, got #{trade[:status]}")
+  end
 
   body = JSON.parse(request.body.read)
   bob_dest = body["bob_dest_address"]
