@@ -75,6 +75,22 @@ up: build-ruby
     echo "  Logs:  just logs"
     echo "  Stop:  just down"
 
+# Rebuild + restart just the Ruby server (keeps frontend running)
+restart-server: build-ruby
+    #!/usr/bin/env bash
+    pkill -f "arbiter.rb" 2>/dev/null && echo "Stopped old server" || true
+    sleep 0.5
+    (cd {{ROOT}}/sample/server && \
+      ARBITER_SK={{ARBITER_SK}} \
+      ARKADE_URL={{ARKADE_URL}} \
+      NETWORK={{NETWORK}} \
+      FORCE_DELEGATE=${FORCE_DELEGATE:-0} \
+      DELEGATE_COSIGNER_SK=${DELEGATE_COSIGNER_SK:-{{ARBITER_SK}}} \
+      bundle exec ruby arbiter.rb -o 127.0.0.1 -p {{ARBITER_PORT}} > /tmp/arbiter.log 2>&1 &) &
+    sleep 2
+    pgrep -f "arbiter.rb" | head -1 > /tmp/arbiter.pid
+    echo "Server restarted: http://localhost:{{ARBITER_PORT}}  (pid $(cat /tmp/arbiter.pid))"
+
 # Stop everything
 down:
     #!/usr/bin/env bash
