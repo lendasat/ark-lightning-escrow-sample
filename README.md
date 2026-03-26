@@ -19,7 +19,7 @@ frontend/        Browser UI (Alice + Bob flows)
 e2e/             Automated end-to-end test (TS → Ruby → Rust → Arkade)
 ```
 
-The Ruby FFI native extension lives in the [ark-escrow](https://github.com/lendasat/ark-escrow) repo (`ruby-ext/`). Set `ARK_ESCROW_DIR` if it's not at `../ark-escrow`.
+The Ruby FFI native extension lives in the [ark-escrow](https://github.com/lendasat/ark-escrow) repo (git submodule at `ark-escrow/`).
 
 ### Escrow contract
 
@@ -42,11 +42,12 @@ Six taproot leaves in a weighted Huffman tree:
 ## Quick start
 
 ```sh
-nix develop          # Rust 1.94, Ruby 3.3, Node 22, pnpm, just
+git submodule update --init   # fetch ark-escrow
+nix develop                   # Rust 1.94, Ruby 3.3, Node 22, pnpm, just
 
-just build-ruby      # build the native extension
-just install         # install TS deps (frontend + e2e)
-just e2e             # run the full end-to-end test
+just build-ruby               # build the native extension
+just install                  # install TS deps (frontend + e2e)
+just e2e                      # run the full end-to-end test
 ```
 
 ## Trade flow

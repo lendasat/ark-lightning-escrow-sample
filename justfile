@@ -1,6 +1,6 @@
 set dotenv-load
 
-ARK_ESCROW_DIR := env("ARK_ESCROW_DIR", justfile_directory() / ".." / "ark-escrow")
+ARK_ESCROW_DIR := env("ARK_ESCROW_DIR", justfile_directory() / "ark-escrow")
 
 # Build the native extension for Ruby (from ark-escrow repo)
 build-ruby:

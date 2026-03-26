@@ -10,7 +10,7 @@ require "securerandom"
 require "json"
 
 # Load the native extension
-ARK_ESCROW_DIR = ENV.fetch("ARK_ESCROW_DIR", File.expand_path("../../../../ark-escrow", __dir__))
+ARK_ESCROW_DIR = ENV.fetch("ARK_ESCROW_DIR", File.expand_path("../../ark-escrow", __dir__))
 $LOAD_PATH.unshift File.join(ARK_ESCROW_DIR, "ruby-ext", "lib")
 require "ark_escrow"
 
