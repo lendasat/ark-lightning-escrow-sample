@@ -14,11 +14,12 @@ This sample uses two external SDKs:
 ## Components
 
 ```
-ruby-ext/        Ruby FFI via Magnus — wraps ark-escrow for the Ruby server
 sample/server/   Sinatra Arbiter server — trade lifecycle orchestration
 frontend/        Browser UI (Alice + Bob flows)
 e2e/             Automated end-to-end test (TS → Ruby → Rust → Arkade)
 ```
+
+The Ruby FFI native extension lives in the [ark-escrow](https://github.com/lendasat/ark-escrow) repo (`ruby-ext/`). Set `ARK_ESCROW_DIR` if it's not at `../ark-escrow`.
 
 ### Escrow contract
 

@@ -1,11 +1,13 @@
 set dotenv-load
 
-# Build the native extension for Ruby
+ARK_ESCROW_DIR := env("ARK_ESCROW_DIR", justfile_directory() / ".." / "ark-escrow")
+
+# Build the native extension for Ruby (from ark-escrow repo)
 build-ruby:
-    cargo build -p ark-escrow-ruby
+    cd {{ARK_ESCROW_DIR}} && cargo build -p ark-escrow-ruby
     @# Symlink without lib prefix so Ruby's Init_ function name matches.
     @# macOS produces .dylib, Linux produces .so — Ruby needs .bundle on macOS, .so on Linux.
-    @cd target/debug && \
+    @cd {{ARK_ESCROW_DIR}}/target/debug && \
       if [ -f libark_escrow_ruby.dylib ]; then \
         ln -sf libark_escrow_ruby.dylib ark_escrow_ruby.bundle; \
       else \
@@ -13,8 +15,8 @@ build-ruby:
       fi
 
 build-ruby-release:
-    cargo build --release -p ark-escrow-ruby
-    @cd target/release && \
+    cd {{ARK_ESCROW_DIR}} && cargo build --release -p ark-escrow-ruby
+    @cd {{ARK_ESCROW_DIR}}/target/release && \
       if [ -f libark_escrow_ruby.dylib ]; then \
         ln -sf libark_escrow_ruby.dylib ark_escrow_ruby.bundle; \
       else \
