@@ -15,6 +15,9 @@ ARK_ESCROW_DIR = ENV.fetch("ARK_ESCROW_DIR", File.expand_path("../../ark-escrow"
 $LOAD_PATH.unshift File.join(ARK_ESCROW_DIR, "ruby-ext", "lib")
 require "ark_escrow"
 
+$stdout.sync = true
+$stderr.sync = true
+
 # --- Configuration ---
 
 ARKADE_URL = ENV.fetch("ARKADE_URL", "http://localhost:7070")
@@ -64,7 +67,7 @@ class CallbackSpendStore
       end
     end
 
-    puts "[SpendStore] save #{id}#{should_fail ? ' (persisted, then failing once)' : ''}"
+    warn "[SpendStore] save #{id}#{should_fail ? ' (persisted, then failing once)' : ''}"
     raise "simulated spend store save failure after persist for #{id}" if should_fail
 
     nil
@@ -72,13 +75,13 @@ class CallbackSpendStore
 
   def load(id)
     value = @lock.synchronize { @data[id] }
-    puts "[SpendStore] load #{id} => #{value.nil? ? 'miss' : 'hit'}"
+    warn "[SpendStore] load #{id} => #{value.nil? ? 'miss' : 'hit'}"
     value
   end
 
   def remove(id)
     removed = @lock.synchronize { @data.delete(id) }
-    puts "[SpendStore] remove #{id}#{removed.nil? ? ' (noop)' : ''}"
+    warn "[SpendStore] remove #{id}#{removed.nil? ? ' (noop)' : ''}"
     nil
   end
 end
@@ -225,7 +228,7 @@ post "/trades/:id/release" do
     CLIENT.get_escrow_vtxo_status(trade[:id], trade[:contract])
 
   if pending_offchain
-    puts "  VTXO status: pending_offchain=true, reusing existing signed release payloads"
+    warn "  VTXO status: pending_offchain=true, reusing existing signed release payloads"
 
     trade[:status] = "releasing_offchain"
     return json(
@@ -241,7 +244,7 @@ post "/trades/:id/release" do
   halt 404, json(error: "no escrow VTXOs found") if vtxos_data.empty?
 
   use_delegate = any_recoverable || FORCE_DELEGATE
-  puts "  VTXO status: pending_offchain=false, any_recoverable=#{any_recoverable}, force=#{FORCE_DELEGATE}, using #{use_delegate ? 'delegate' : 'offchain'}"
+  warn "  VTXO status: pending_offchain=false, any_recoverable=#{any_recoverable}, force=#{FORCE_DELEGATE}, using #{use_delegate ? 'delegate' : 'offchain'}"
 
   if use_delegate
     # --- Delegate path ---
