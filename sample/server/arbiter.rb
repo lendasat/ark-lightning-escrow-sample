@@ -8,6 +8,7 @@ require "sinatra"
 require "sinatra/json"
 require "securerandom"
 require "json"
+require "thread"
 
 # Load the native extension
 ARK_ESCROW_DIR = ENV.fetch("ARK_ESCROW_DIR", File.expand_path("../../ark-escrow", __dir__))
@@ -19,7 +20,6 @@ require "ark_escrow"
 ARKADE_URL = ENV.fetch("ARKADE_URL", "http://localhost:7070")
 ARBITER_SK = ENV.fetch("ARBITER_SK") # hex-encoded secret key
 NETWORK = ENV.fetch("NETWORK", "regtest")
-SPEND_STORE_DIR = ENV.fetch("SPEND_STORE_DIR", "/tmp/ark-escrow-pending")
 
 # Fee as percentage of escrow amount (e.g., "0.01" = 1%)
 FEE_RATE = ENV.fetch("FEE_RATE", "0.01").to_f
@@ -37,7 +37,33 @@ FORCE_DELEGATE = ENV.fetch("FORCE_DELEGATE", "0") == "1"
 # --- State ---
 
 TRADES = {}
-CLIENT = ArkEscrow::Client.new(ARKADE_URL, SPEND_STORE_DIR)
+
+# Demo-only store for crash-recovery state during offchain release finalization.
+# This keeps the sample self-contained and shows the callback-based API.
+# For real crash recovery across process restarts, back this with a database.
+class CallbackSpendStore
+  def initialize
+    @data = {}
+    @lock = Mutex.new
+  end
+
+  def save(id, json)
+    @lock.synchronize { @data[id] = json }
+    nil
+  end
+
+  def load(id)
+    @lock.synchronize { @data[id] }
+  end
+
+  def remove(id)
+    @lock.synchronize { @data.delete(id) }
+    nil
+  end
+end
+
+SPEND_STORE = CallbackSpendStore.new
+CLIENT = ArkEscrow::Client.with_custom_store(ARKADE_URL, SPEND_STORE)
 
 configure do
   CLIENT.connect
