@@ -41,23 +41,44 @@ TRADES = {}
 # Demo-only store for crash-recovery state during offchain release finalization.
 # This keeps the sample self-contained and shows the callback-based API.
 # For real crash recovery across process restarts, back this with a database.
+#
+# For now, the app also depends on this store to infer whether an offchain spend
+# is already pending for a trade. Arkade should eventually surface pending spend
+# status for escrow VTXOs explicitly, but until then the local spend store is
+# the source of truth for retrying offchain finalization safely.
 class CallbackSpendStore
   def initialize
     @data = {}
     @lock = Mutex.new
+    @fail_save_once = ENV.fetch("FAIL_SPEND_STORE_SAVE_ONCE", "0") == "1"
   end
 
   def save(id, json)
-    @lock.synchronize { @data[id] = json }
+    should_fail = false
+
+    @lock.synchronize do
+      @data[id] = json
+      if @fail_save_once
+        @fail_save_once = false
+        should_fail = true
+      end
+    end
+
+    puts "[SpendStore] save #{id}#{should_fail ? ' (persisted, then failing once)' : ''}"
+    raise "simulated spend store save failure after persist for #{id}" if should_fail
+
     nil
   end
 
   def load(id)
-    @lock.synchronize { @data[id] }
+    value = @lock.synchronize { @data[id] }
+    puts "[SpendStore] load #{id} => #{value.nil? ? 'miss' : 'hit'}"
+    value
   end
 
   def remove(id)
-    @lock.synchronize { @data.delete(id) }
+    removed = @lock.synchronize { @data.delete(id) }
+    puts "[SpendStore] remove #{id}#{removed.nil? ? ' (noop)' : ''}"
     nil
   end
 end
@@ -195,12 +216,32 @@ post "/trades/:id/release" do
   fee_sats = (trade[:escrow_amount] * FEE_RATE).to_i
   fee_dest = FEE_ADDRESS && fee_sats > 0 ? FEE_ADDRESS : nil
 
-  # Check VTXO status to decide offchain vs delegate
-  vtxos_data, any_recoverable = CLIENT.find_escrow_vtxos(trade[:contract])
+  # Check escrow VTXO status to decide whether to resume a pending offchain
+  # spend, use the delegate path, or build a fresh offchain release.
+  #
+  # For now, `pending_offchain` is inferred from the local SpendStore. Arkade
+  # should eventually surface pending spend status for escrow VTXOs explicitly.
+  pending_offchain, vtxos_data, any_recoverable =
+    CLIENT.get_escrow_vtxo_status(trade[:id], trade[:contract])
+
+  if pending_offchain
+    puts "  VTXO status: pending_offchain=true, reusing existing signed release payloads"
+
+    trade[:status] = "releasing_offchain"
+    return json(
+      trade_id: trade[:id],
+      status: "releasing_offchain",
+      mode: "offchain",
+      ark_tx_psbt: trade[:arbiter_signed_ark_tx_b64],
+      checkpoint_psbts: trade[:arbiter_signed_checkpoint_txs_b64],
+      retry: true,
+    )
+  end
+
   halt 404, json(error: "no escrow VTXOs found") if vtxos_data.empty?
 
   use_delegate = any_recoverable || FORCE_DELEGATE
-  puts "  VTXO status: any_recoverable=#{any_recoverable}, force=#{FORCE_DELEGATE}, using #{use_delegate ? 'delegate' : 'offchain'}"
+  puts "  VTXO status: pending_offchain=false, any_recoverable=#{any_recoverable}, force=#{FORCE_DELEGATE}, using #{use_delegate ? 'delegate' : 'offchain'}"
 
   if use_delegate
     # --- Delegate path ---
