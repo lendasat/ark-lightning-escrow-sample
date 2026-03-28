@@ -86,7 +86,7 @@ restart-server: build-ruby
       ARBITER_SK={{ARBITER_SK}} \
       ARKADE_URL={{ARKADE_URL}} \
       NETWORK={{NETWORK}} \
-      FORCE_DELEGATE=${FORCE_DELEGATE:-0} \
+      FORCE_SPEND_VIA_SETTLEMENT=${FORCE_SPEND_VIA_SETTLEMENT:-0} \
       DELEGATE_COSIGNER_SK=${DELEGATE_COSIGNER_SK:-{{ARBITER_SK}}} \
       bundle exec ruby arbiter.rb -o 127.0.0.1 -p {{ARBITER_PORT}} > /tmp/arbiter.log 2>&1 &) &
     sleep 2
