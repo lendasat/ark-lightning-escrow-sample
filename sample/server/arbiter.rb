@@ -53,23 +53,11 @@ class CallbackSpendStore
   def initialize
     @data = {}
     @lock = Mutex.new
-    @fail_save_once = ENV.fetch("FAIL_SPEND_STORE_SAVE_ONCE", "0") == "1"
   end
 
   def save(id, json)
-    should_fail = false
-
-    @lock.synchronize do
-      @data[id] = json
-      if @fail_save_once
-        @fail_save_once = false
-        should_fail = true
-      end
-    end
-
-    warn "[SpendStore] save #{id}#{should_fail ? ' (persisted, then failing once)' : ''}"
-    raise "simulated spend store save failure after persist for #{id}" if should_fail
-
+    @lock.synchronize { @data[id] = json }
+    warn "[SpendStore] save #{id}"
     nil
   end
 
