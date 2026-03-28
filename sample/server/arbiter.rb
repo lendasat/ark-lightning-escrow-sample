@@ -34,8 +34,8 @@ FEE_ADDRESS = ENV.fetch("FEE_ADDRESS", nil)
 # In production, derive via HD wallet (BIP-32).
 DELEGATE_COSIGNER_SK = ENV.fetch("DELEGATE_COSIGNER_SK", ARBITER_SK)
 
-# Force delegate settlement even when VTXOs are spendable (for testing).
-FORCE_DELEGATE = ENV.fetch("FORCE_DELEGATE", "0") == "1"
+# Force spending via settlement even when VTXOs are spendable (for testing).
+FORCE_SPEND_VIA_SETTLEMENT = ENV.fetch("FORCE_SPEND_VIA_SETTLEMENT", "0") == "1"
 
 # --- State ---
 
@@ -231,8 +231,8 @@ post "/trades/:id/release" do
 
   halt 404, json(error: "no escrow VTXOs found") if vtxos_data.empty?
 
-  use_delegate = any_recoverable || FORCE_DELEGATE
-  warn "  VTXO status: pending_offchain=false, any_recoverable=#{any_recoverable}, force=#{FORCE_DELEGATE}, using #{use_delegate ? 'delegate' : 'offchain'}"
+  use_delegate = any_recoverable || FORCE_SPEND_VIA_SETTLEMENT
+  warn "  VTXO status: pending_offchain=false, any_recoverable=#{any_recoverable}, force=#{FORCE_SPEND_VIA_SETTLEMENT}, using #{use_delegate ? 'delegate' : 'offchain'}"
 
   if use_delegate
     # --- Delegate path ---
