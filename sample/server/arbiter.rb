@@ -27,7 +27,7 @@ NETWORK = ENV.fetch("NETWORK", "regtest")
 # Fee as percentage of escrow amount (e.g., "0.01" = 1%)
 FEE_RATE = ENV.fetch("FEE_RATE", "0.01").to_f
 # Arbiter's Arkade address for fee collection
-FEE_ADDRESS = ENV.fetch("FEE_ADDRESS", nil)
+FEE_ADDRESS = ENV.fetch("FEE_ADDRESS")
 
 # Delegate cosigner secret key — used for batch ceremony delegation.
 # Defaults to a deterministic derivation from the arbiter key for simplicity.
@@ -205,7 +205,7 @@ post "/trades/:id/release" do
   halt 400, json(error: "missing bob_dest_address") unless bob_dest
 
   fee_sats = (trade[:escrow_amount] * FEE_RATE).to_i
-  fee_dest = FEE_ADDRESS && fee_sats > 0 ? FEE_ADDRESS : nil
+  fee_dest = fee_sats > 0 ? FEE_ADDRESS : nil
 
   # Check escrow VTXO status to decide whether to resume a pending offchain
   # spend, use the delegate path, or build a fresh offchain release.
