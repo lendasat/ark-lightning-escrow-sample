@@ -121,6 +121,26 @@ def compute_fee_outputs
   end
 end
 
+def release_plan_for(trade)
+  return nil unless trade[:escrow_amount]
+
+  pending_offchain, vtxos_data, any_recoverable =
+    CLIENT.get_escrow_vtxo_status(trade[:id], trade[:contract])
+  use_delegate = !pending_offchain && (any_recoverable || FORCE_SPEND_VIA_SETTLEMENT)
+  bob_amount, effective_fee_outputs, discarded_fee_outputs =
+    CLIENT.quote_release(trade[:escrow_amount], compute_fee_outputs, use_delegate)
+
+  {
+    pending_offchain: pending_offchain,
+    vtxos_data: vtxos_data,
+    any_recoverable: any_recoverable,
+    mode: use_delegate ? "delegate" : "offchain",
+    releasable_amount: bob_amount,
+    effective_fee_outputs: effective_fee_outputs,
+    discarded_fee_outputs: discarded_fee_outputs,
+  }
+end
+
 # --- Endpoints ---
 
 # Create a new trade
@@ -160,11 +180,15 @@ end
 # Get trade status
 get "/trades/:id" do
   trade = find_trade!(params[:id])
+  release_plan = release_plan_for(trade)
+
   json(
     trade_id: trade[:id],
     status: trade[:status],
     escrow_address: trade[:escrow_address],
     amount: trade[:escrow_amount],
+    releasable_amount: release_plan&.dig(:releasable_amount),
+    release_mode: release_plan&.dig(:mode),
     escrow_outpoint: trade[:escrow_outpoint],
     release_txid: trade[:release_txid],
   )
@@ -218,14 +242,10 @@ post "/trades/:id/release" do
   halt 400, json(error: "missing bob_dest_address") unless bob_dest
 
   fee_outputs = compute_fee_outputs
-
-  # Check escrow VTXO status to decide whether to resume a pending offchain
-  # spend, use the delegate path, or build a fresh offchain release.
-  #
-  # For now, `pending_offchain` is inferred from the local SpendStore. Arkade
-  # should eventually surface pending spend status for escrow VTXOs explicitly.
-  pending_offchain, vtxos_data, any_recoverable =
-    CLIENT.get_escrow_vtxo_status(trade[:id], trade[:contract])
+  release_plan = release_plan_for(trade)
+  pending_offchain = release_plan[:pending_offchain]
+  vtxos_data = release_plan[:vtxos_data]
+  any_recoverable = release_plan[:any_recoverable]
 
   if pending_offchain
     warn "  VTXO status: pending_offchain=true, reusing existing signed release payloads"
@@ -243,7 +263,7 @@ post "/trades/:id/release" do
 
   halt 404, json(error: "no escrow VTXOs found") if vtxos_data.empty?
 
-  use_delegate = any_recoverable || FORCE_SPEND_VIA_SETTLEMENT
+  use_delegate = release_plan[:mode] == "delegate"
   warn "  VTXO status: pending_offchain=false, any_recoverable=#{any_recoverable}, force=#{FORCE_SPEND_VIA_SETTLEMENT}, using #{use_delegate ? 'delegate' : 'offchain'}"
 
   if use_delegate

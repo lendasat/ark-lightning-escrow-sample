@@ -47,6 +47,8 @@ export interface Trade {
   status: string;
   escrow_address: string;
   amount?: number;
+  releasable_amount?: number;
+  release_mode?: "offchain" | "delegate";
   escrow_outpoint?: string;
   release_txid?: string;
 }

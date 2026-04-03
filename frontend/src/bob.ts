@@ -23,7 +23,6 @@ import {
 import "./style.css";
 
 const STEPS = 5;
-const LENDASWAP_FEE_SATS = 1;
 
 async function buildLendaswapClient(): Promise<Client> {
   return Client.builder()
@@ -145,8 +144,10 @@ async function showClaimForm(tradeId: string, bobSk: string) {
   setStep(4, STEPS);
 
   const trade = await getTrade(tradeId);
-  const escrowAmount = trade.amount!;
-  const invoiceAmount = escrowAmount - LENDASWAP_FEE_SATS;
+  const invoiceAmount = trade.releasable_amount;
+  if (invoiceAmount == null) {
+    throw new Error("Trade is not ready to quote a releasable amount yet");
+  }
 
   show(
     "step-4-body",
