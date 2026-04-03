@@ -144,19 +144,32 @@ async function showClaimForm(tradeId: string, bobSk: string) {
   setStep(4, STEPS);
 
   const trade = await getTrade(tradeId);
-  const invoiceAmount = trade.releasable_amount;
-  if (invoiceAmount == null) {
+  const sourceAmount = trade.releasable_amount;
+  if (sourceAmount == null) {
     throw new Error("Trade is not ready to quote a releasable amount yet");
   }
 
+  // Quote the swap to find the actual Lightning amount after Boltz fees.
+  // releasable_amount is the SOURCE (what funds the VHTLC), not the target.
+  const quoteRes = await fetch(
+    `${LENDASWAP_URL}/quote?source_chain=Arkade&source_token=btc&target_chain=Lightning&target_token=btc&source_amount=${sourceAmount}`,
+  );
+  if (!quoteRes.ok) throw new Error(`Quote failed: ${quoteRes.status}`);
+  const quote = await quoteRes.json();
+  // The VHTLC funding amount = target + protocol_fee, so to match our
+  // source amount exactly we subtract the fee from the target.
+  const protocolFee = Number(quote.protocol_fee) || 0;
+  const targetAmount = sourceAmount - protocolFee;
+
   show(
     "step-4-body",
-    `<p>You'll receive <strong>${invoiceAmount.toLocaleString()} sats</strong> via Lightning.</p>
+    `<p>Escrow release: <strong>${sourceAmount.toLocaleString()} sats</strong></p>
+     <p>You'll receive <strong>${targetAmount.toLocaleString()} sats</strong> via Lightning (after swap fees).</p>
      <label>Lightning invoice or Lightning address
        <input id="ln-dest" placeholder="lnbc… / user@wallet.com" />
      </label>
      <p style="margin-top:0.3rem; font-size:0.85rem; opacity:0.7">
-       BOLT11 invoice must be for exactly ${invoiceAmount.toLocaleString()} sats.
+       BOLT11 invoice must be for exactly ${targetAmount.toLocaleString()} sats.
        Lightning addresses resolve automatically.
      </p>
      <button id="btn-claim">Claim via Lightning →</button>
@@ -177,7 +190,7 @@ async function showClaimForm(tradeId: string, bobSk: string) {
     show("claim-err", "");
 
     try {
-      await doClaim(tradeId, bobSk, toSwapOptions(parsed, invoiceAmount));
+      await doClaim(tradeId, bobSk, toSwapOptions(parsed, targetAmount));
     } catch (e: any) {
       show("claim-err", e.message);
       ($("btn-claim") as HTMLButtonElement).disabled = false;
