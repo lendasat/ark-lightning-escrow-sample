@@ -30,13 +30,15 @@ install:
 
 # --- Demo environment ---
 # Requires: nigiri + arkd + fulmine running (regtest stack)
-# Override with env vars: ARKADE_URL, ARBITER_PORT, FRONTEND_PORT, ARBITER_SK
+# Override with env vars: ARKADE_URL, ARBITER_PORT, FRONTEND_PORT, ARBITER_SK,
+# FEE_OUTPUTS_JSON
 
 ARKADE_URL       := env("ARKADE_URL", "http://localhost:7070")
 NETWORK          := env("NETWORK", "regtest")
 ARBITER_PORT    := env("ARBITER_PORT", "4567")
 FRONTEND_PORT    := env("FRONTEND_PORT", "3001")
 ARBITER_SK       := env("ARBITER_SK", "0000000000000000000000000000000000000000000000000000000000000001")
+FEE_OUTPUTS_JSON := env("FEE_OUTPUTS_JSON", "[]")
 VITE_ARBITER_URL   := env("VITE_ARBITER_URL", "http://localhost:" + ARBITER_PORT)
 VITE_ARKADE_URL     := env("VITE_ARKADE_URL", ARKADE_URL)
 VITE_LENDASWAP_URL  := env("VITE_LENDASWAP_URL", "http://localhost:7071")
@@ -55,6 +57,7 @@ up: build-ruby
       ARBITER_SK={{ARBITER_SK}} \
       ARKADE_URL={{ARKADE_URL}} \
       NETWORK={{NETWORK}} \
+      FEE_OUTPUTS_JSON='{{FEE_OUTPUTS_JSON}}' \
       bundle exec ruby arbiter.rb -o 127.0.0.1 -p {{ARBITER_PORT}} > /tmp/arbiter.log 2>&1 &) &
     sleep 1 && pgrep -f "arbiter.rb" | head -1 > /tmp/arbiter.pid
     echo "Starting frontend..."
@@ -86,6 +89,7 @@ restart-server: build-ruby
       ARBITER_SK={{ARBITER_SK}} \
       ARKADE_URL={{ARKADE_URL}} \
       NETWORK={{NETWORK}} \
+      FEE_OUTPUTS_JSON='{{FEE_OUTPUTS_JSON}}' \
       FORCE_SPEND_VIA_SETTLEMENT=${FORCE_SPEND_VIA_SETTLEMENT:-0} \
       DELEGATE_COSIGNER_SK=${DELEGATE_COSIGNER_SK:-{{ARBITER_SK}}} \
       bundle exec ruby arbiter.rb -o 127.0.0.1 -p {{ARBITER_PORT}} > /tmp/arbiter.log 2>&1 &) &

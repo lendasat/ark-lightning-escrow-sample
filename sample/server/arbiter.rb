@@ -24,10 +24,10 @@ ARKADE_URL = ENV.fetch("ARKADE_URL", "http://localhost:7070")
 ARBITER_SK = ENV.fetch("ARBITER_SK") # hex-encoded secret key
 NETWORK = ENV.fetch("NETWORK", "regtest")
 
-# Fee as percentage of escrow amount (e.g., "0.01" = 1%)
-FEE_RATE = ENV.fetch("FEE_RATE", "0.01").to_f
-# Arbiter's Arkade address for fee collection
-FEE_ADDRESS = ENV.fetch("FEE_ADDRESS")
+# Release fee outputs as JSON array of [address, sats] pairs.
+# Example:
+#   [["ark1...fee1", 100], ["ark1...fee2", 50]]
+FEE_OUTPUTS_JSON = ENV.fetch("FEE_OUTPUTS_JSON", "[]")
 
 # Delegate cosigner secret key — used for batch ceremony delegation.
 # Defaults to a deterministic derivation from the arbiter key for simplicity.
@@ -105,6 +105,19 @@ end
 def assert_status!(trade, expected)
   unless trade[:status] == expected
     halt 409, json(error: "expected status #{expected}, got #{trade[:status]}")
+  end
+end
+
+def compute_fee_outputs
+  outputs = JSON.parse(FEE_OUTPUTS_JSON)
+  unless outputs.is_a?(Array) && outputs.all? { |entry| entry.is_a?(Array) && entry.size == 2 }
+    halt 500, json(error: "FEE_OUTPUTS_JSON must be a JSON array of [address, sats] pairs")
+  end
+
+  outputs.filter_map do |address, sats|
+    amount = Integer(sats)
+    next if amount <= 0
+    [String(address), amount]
   end
 end
 
@@ -204,8 +217,7 @@ post "/trades/:id/release" do
   bob_dest = body["bob_dest_address"]
   halt 400, json(error: "missing bob_dest_address") unless bob_dest
 
-  fee_sats = (trade[:escrow_amount] * FEE_RATE).to_i
-  fee_dest = fee_sats > 0 ? FEE_ADDRESS : nil
+  fee_outputs = compute_fee_outputs
 
   # Check escrow VTXO status to decide whether to resume a pending offchain
   # spend, use the delegate path, or build a fresh offchain release.
@@ -241,8 +253,7 @@ post "/trades/:id/release" do
         trade[:contract],
         vtxos_data,
         bob_dest,
-        fee_dest,
-        fee_dest ? fee_sats : nil,
+        fee_outputs,
         DELEGATE_COSIGNER_SK,
       )
 
@@ -272,8 +283,7 @@ post "/trades/:id/release" do
       trade[:escrow_outpoint],
       trade[:escrow_amount],
       bob_dest,
-      fee_dest,
-      fee_dest ? fee_sats : nil,
+      fee_outputs,
     )
 
     # Keep unsigned checkpoints — these go to Arkade at submit time
