@@ -45,9 +45,28 @@ Six taproot leaves in a weighted Huffman tree:
 git submodule update --init   # fetch ark-escrow
 nix develop                   # Rust 1.94, Ruby 3.3, Node 22, pnpm, just
 
+cp .env.sample .env           # configure environment (edit as needed)
 just build-ruby               # build the native extension
 just install                  # install TS deps (frontend + e2e)
 just e2e                      # run the full end-to-end test
+```
+
+## Configuration
+
+Copy `.env.sample` to `.env` and adjust as needed. Key settings:
+
+| Variable | Description |
+|----------|-------------|
+| `ARKADE_URL` | Arkade server URL |
+| `NETWORK` | `regtest`, `mutinynet`, `signet`, or `bitcoin` |
+| `ARBITER_SK` | Arbiter secret key (hex) |
+| `FEE_OUTPUTS_JSON` | Release fee outputs as JSON array of `[address, sats]` pairs |
+| `VITE_LENDASWAP_URL` | Lendaswap API URL (for Lightning swaps) |
+
+Fee output example:
+
+```env
+FEE_OUTPUTS_JSON='[["tark1q...",500],["tark1q...",400]]'
 ```
 
 ## Trade flow
@@ -58,6 +77,18 @@ just e2e                      # run the full end-to-end test
 4. **Release** — Arbiter builds release tx, signs everything, returns PSBTs to Bob
 5. **Sign** — Bob signs all PSBTs in one round (`signEscrowArkTx()` + `signEscrowCheckpoints()`)
 6. **Complete** — Arbiter merges signatures, submits to Arkade, finalizes
+
+If the escrow VTXO has become recoverable (expired from the VTXO tree), the release automatically switches to **delegate settlement** via an Arkade batch ceremony. The frontend handles both paths transparently.
+
+## Release amount
+
+The arbiter server computes the effective release amount after fee outputs. `GET /trades/:id` returns:
+
+- `amount` — total escrow amount
+- `releasable_amount` — what Bob receives after fees (accounts for dust filtering in delegate mode)
+- `release_mode` — `offchain` or `delegate`
+
+The frontend uses `releasable_amount` as the source amount when creating the Lightning swap, then quotes lendaswap to determine the correct invoice amount after Boltz fees.
 
 ## Signing protocol (single client round-trip)
 
