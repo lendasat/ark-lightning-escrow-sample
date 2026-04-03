@@ -242,7 +242,9 @@ post "/trades/:id/release" do
   halt 400, json(error: "missing bob_dest_address") unless bob_dest
 
   fee_outputs = compute_fee_outputs
+  warn "  fee_outputs: #{fee_outputs.inspect}"
   release_plan = release_plan_for(trade)
+  warn "  release_plan: bob_amount=#{release_plan[:releasable_amount]} effective_fees=#{release_plan[:effective_fee_outputs].inspect} discarded_fees=#{release_plan[:discarded_fee_outputs].inspect}"
   pending_offchain = release_plan[:pending_offchain]
   vtxos_data = release_plan[:vtxos_data]
   any_recoverable = release_plan[:any_recoverable]
