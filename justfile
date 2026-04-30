@@ -90,8 +90,6 @@ restart-server: build-ruby
       ARKADE_URL={{ARKADE_URL}} \
       NETWORK={{NETWORK}} \
       FEE_OUTPUTS_JSON='{{FEE_OUTPUTS_JSON}}' \
-      FORCE_SPEND_VIA_SETTLEMENT=${FORCE_SPEND_VIA_SETTLEMENT:-0} \
-      DELEGATE_COSIGNER_SK=${DELEGATE_COSIGNER_SK:-{{ARBITER_SK}}} \
       bundle exec ruby arbiter.rb -o 127.0.0.1 -p {{ARBITER_PORT}} > /tmp/arbiter.log 2>&1 &) &
     sleep 2
     pgrep -f "arbiter.rb" | head -1 > /tmp/arbiter.pid

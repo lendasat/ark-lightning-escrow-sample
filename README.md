@@ -74,19 +74,21 @@ FEE_OUTPUTS_JSON='[["tark1q...",500],["tark1q...",400]]'
 1. **Create** — TS client sends Alice + Bob pubkeys → server builds escrow contract, returns address
 2. **Fund** — Alice sends sats to the escrow address via Arkade
 3. **Attest** — Server confirms off-chain condition (e.g. ERC20 transfer)
-4. **Release** — Arbiter builds release tx, signs everything, returns PSBTs to Bob
-5. **Sign** — Bob signs all PSBTs in one round (`signEscrowArkTx()` + `signEscrowCheckpoints()`)
-6. **Complete** — Arbiter merges signatures, submits to Arkade, finalizes
+4. **Bob refreshes if needed** — If `release_mode` is `refresh` (or Bob ticks the sample's “refresh before claim” checkbox), Bob signs refresh PSBTs via `/refresh-bob` and the arbiter refreshes the escrow back into the same address
+5. **Create swap** — Bob creates the Lightning swap only after the escrow is spendable
+6. **Release** — Arbiter builds release tx, signs everything, returns PSBTs to Bob
+7. **Sign** — Bob signs all PSBTs in one round (`signEscrowArkTx()` + `signEscrowCheckpoints()`)
+8. **Complete** — Arbiter merges signatures, submits to Arkade, finalizes
 
-If the escrow VTXO has become recoverable (expired from the VTXO tree), the release automatically switches to **delegate settlement** via an Arkade batch ceremony. The frontend handles both paths transparently.
+If the escrow VTXO has become recoverable (expired from the VTXO tree), the frontend performs an explicit escrow **refresh** before creating the Lightning swap/VHTLC, then proceeds with the normal offchain release. Bob can also tick “refresh before claim” to exercise this flow even when the escrow is already spendable; the backend logs a warning in that case.
 
 ## Release amount
 
 The arbiter server computes the effective release amount after fee outputs. `GET /trades/:id` returns:
 
 - `amount` — total escrow amount
-- `releasable_amount` — what Bob receives after fees (accounts for dust filtering in delegate mode)
-- `release_mode` — `offchain` or `delegate`
+- `releasable_amount` — what Bob receives after release fee outputs
+- `release_mode` — `offchain` or `refresh`
 
 The frontend uses `releasable_amount` as the source amount when creating the Lightning swap, then quotes lendaswap to determine the correct invoice amount after Boltz fees.
 

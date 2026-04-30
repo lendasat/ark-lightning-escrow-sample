@@ -1,4 +1,4 @@
 [submodule "ark-escrow"]
 	path = ark-escrow
 	url = https://github.com/lendasat/ark-escrow.git
-	branch = feat/rework-spend-store
+	branch = master

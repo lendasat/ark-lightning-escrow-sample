@@ -2,7 +2,7 @@
 
 # Arbiter server — orchestrates escrow trades using the ark_escrow gem.
 #
-# Trade states: created → funded → attested → releasing → completed
+# Trade states: created → funded → attested → refreshing/releasing → completed
 
 require "sinatra"
 require "sinatra/json"
@@ -28,14 +28,6 @@ NETWORK = ENV.fetch("NETWORK", "regtest")
 # Example:
 #   [["ark1...fee1", 100], ["ark1...fee2", 50]]
 FEE_OUTPUTS_JSON = ENV.fetch("FEE_OUTPUTS_JSON", "[]")
-
-# Delegate cosigner secret key — used for batch ceremony delegation.
-# Defaults to a deterministic derivation from the arbiter key for simplicity.
-# In production, derive via HD wallet (BIP-32).
-DELEGATE_COSIGNER_SK = ENV.fetch("DELEGATE_COSIGNER_SK", ARBITER_SK)
-
-# Force spending via settlement even when VTXOs are spendable (for testing).
-FORCE_SPEND_VIA_SETTLEMENT = ENV.fetch("FORCE_SPEND_VIA_SETTLEMENT", "0") == "1"
 
 # --- State ---
 
@@ -126,19 +118,45 @@ def release_plan_for(trade)
 
   pending_offchain, vtxos_data, any_recoverable =
     CLIENT.get_escrow_vtxo_status(trade[:id], trade[:contract])
-  use_delegate = !pending_offchain && (any_recoverable || FORCE_SPEND_VIA_SETTLEMENT)
-  bob_amount, effective_fee_outputs, discarded_fee_outputs =
-    CLIENT.quote_release(trade[:escrow_amount], compute_fee_outputs, use_delegate)
+  use_refresh = !pending_offchain && any_recoverable
+
+  escrow_amount = if vtxos_data.empty?
+    nil
+  elsif use_refresh
+    vtxos_data.sum { |v| Integer(v[1]) }
+  else
+    Integer(vtxos_data[0][1])
+  end
+
+  bob_amount, effective_fee_outputs, discarded_fee_outputs = if escrow_amount
+    CLIENT.quote_release(escrow_amount, compute_fee_outputs, false)
+  else
+    [nil, [], []]
+  end
 
   {
     pending_offchain: pending_offchain,
     vtxos_data: vtxos_data,
     any_recoverable: any_recoverable,
-    mode: use_delegate ? "delegate" : "offchain",
+    mode: use_refresh ? "refresh" : "offchain",
+    escrow_amount: escrow_amount,
     releasable_amount: bob_amount,
     effective_fee_outputs: effective_fee_outputs,
     discarded_fee_outputs: discarded_fee_outputs,
   }
+end
+
+def wait_for_refreshed_vtxo(contract, previous_outpoint)
+  30.times do
+    vtxo = CLIENT.find_escrow_vtxo(contract)
+    return vtxo if vtxo && vtxo[0] != previous_outpoint
+    sleep 1
+  rescue => e
+    warn "  waiting for refreshed VTXO: #{e.message}"
+    sleep 1
+  end
+
+  raise "refreshed escrow VTXO not found"
 end
 
 # --- Endpoints ---
@@ -222,19 +240,76 @@ post "/trades/:id/attest" do
   json(trade_id: trade[:id], status: "attested")
 end
 
-# Build release — checks VTXO status and returns either offchain or delegate
-# PSBTs.
+# Prepare Bob-triggered refresh PSBTs for an escrow contract.
 #
-# If the escrow VTXO is spendable: returns mode "offchain" with arbiter-signed
-# ark_tx + checkpoint PSBTs (existing flow).
-#
-# If the escrow VTXO is recoverable: returns mode "delegate" with unsigned
-# delegate PSBTs (intent + forfeits) that Bob must sign, then POST to
-# /release/settle.
+# The refreshed VTXO returns to the same escrow address; once it is
+# spendable again, Bob can continue with the release. Bob may also trigger this
+# for currently spendable VTXOs to exercise the refresh flow in this sample.
+post "/trades/:id/refresh-bob" do
+  trade = find_trade!(params[:id])
+  unless ["attested", "refreshing_escrow"].include?(trade[:status])
+    halt 409, json(error: "expected status attested or refreshing_escrow, got #{trade[:status]}")
+  end
+
+  if trade[:status] == "refreshing_escrow"
+    return json(
+      trade_id: trade[:id],
+      status: "refreshing_escrow",
+      mode: "refresh",
+      cosigner_pk: trade[:refresh_cosigner_pk_hex],
+      intent_message: trade[:refresh_intent_message_json],
+      intent_proof_psbt: trade[:refresh_intent_b64],
+      forfeit_psbts: trade[:refresh_forfeit_psbts_b64],
+      retry: true,
+    )
+  end
+
+  release_plan = release_plan_for(trade)
+  halt 409, json(error: "cannot refresh while offchain release is pending") if release_plan[:pending_offchain]
+
+  vtxos_data = release_plan[:vtxos_data]
+  halt 404, json(error: "no escrow VTXOs found") if vtxos_data.empty?
+
+  unless release_plan[:any_recoverable]
+    warn "  warning: Bob requested refresh for spendable escrow VTXOs; refresh is not required"
+  end
+
+  warn "  preparing Bob refresh: vtxos=#{vtxos_data.length}, any_recoverable=#{release_plan[:any_recoverable]}"
+  intent_proof_b64, intent_message_json, forfeit_psbts_b64, cosigner_pk_hex =
+    CLIENT.prepare_refresh(
+      trade[:contract],
+      vtxos_data,
+      "release",
+      ARBITER_SK,
+    )
+
+  arbiter_signed_intent, arbiter_signed_forfeits =
+    ArkEscrow.sign_refresh(intent_proof_b64, forfeit_psbts_b64, ARBITER_SK)
+
+  trade[:refresh_intent_b64] = arbiter_signed_intent
+  trade[:refresh_intent_message_json] = intent_message_json
+  trade[:refresh_forfeit_psbts_b64] = arbiter_signed_forfeits
+  trade[:refresh_cosigner_pk_hex] = cosigner_pk_hex
+  trade[:refresh_previous_outpoint] = trade[:escrow_outpoint]
+  trade[:status] = "refreshing_escrow"
+
+  json(
+    trade_id: trade[:id],
+    status: "refreshing_escrow",
+    mode: "refresh",
+    cosigner_pk: cosigner_pk_hex,
+    intent_message: intent_message_json,
+    intent_proof_psbt: arbiter_signed_intent,
+    forfeit_psbts: arbiter_signed_forfeits,
+  )
+end
+
+# Build normal offchain release PSBTs. If `release_mode` is "refresh", call the
+# explicit Bob refresh endpoints before creating a Lightning swap and releasing.
 post "/trades/:id/release" do
   trade = find_trade!(params[:id])
-  unless ["attested", "releasing_offchain", "releasing_delegate"].include?(trade[:status])
-    halt 409, json(error: "expected status attested or releasing_*, got #{trade[:status]}")
+  unless ["attested", "releasing_offchain"].include?(trade[:status])
+    halt 409, json(error: "expected status attested or releasing_offchain, got #{trade[:status]}")
   end
 
   body = JSON.parse(request.body.read)
@@ -247,7 +322,6 @@ post "/trades/:id/release" do
   warn "  release_plan: bob_amount=#{release_plan[:releasable_amount]} effective_fees=#{release_plan[:effective_fee_outputs].inspect} discarded_fees=#{release_plan[:discarded_fee_outputs].inspect}"
   pending_offchain = release_plan[:pending_offchain]
   vtxos_data = release_plan[:vtxos_data]
-  any_recoverable = release_plan[:any_recoverable]
 
   if pending_offchain
     warn "  VTXO status: pending_offchain=true, reusing existing signed release payloads"
@@ -263,72 +337,43 @@ post "/trades/:id/release" do
     )
   end
 
+  if release_plan[:mode] == "refresh"
+    halt 409, json(error: "escrow requires refresh before release", release_mode: "refresh")
+  end
+
   halt 404, json(error: "no escrow VTXOs found") if vtxos_data.empty?
 
-  use_delegate = release_plan[:mode] == "delegate"
-  warn "  VTXO status: pending_offchain=false, any_recoverable=#{any_recoverable}, force=#{FORCE_SPEND_VIA_SETTLEMENT}, using #{use_delegate ? 'delegate' : 'offchain'}"
+  trade[:escrow_outpoint] = vtxos_data[0][0]
+  trade[:escrow_amount] = vtxos_data[0][1]
 
-  if use_delegate
-    # --- Delegate path ---
-    intent_proof_b64, intent_message_json, forfeit_psbts_b64, cosigner_pk_hex =
-      CLIENT.prepare_release_delegate(
-        trade[:contract],
-        vtxos_data,
-        bob_dest,
-        fee_outputs,
-        DELEGATE_COSIGNER_SK,
-      )
+  ark_tx_b64, checkpoint_txs_b64 = CLIENT.build_release(
+    trade[:contract],
+    trade[:escrow_outpoint],
+    trade[:escrow_amount],
+    bob_dest,
+    fee_outputs,
+  )
 
-    # Arbiter signs the delegate PSBTs
-    arbiter_signed_intent, arbiter_signed_forfeits =
-      ArkEscrow.sign_delegate(intent_proof_b64, forfeit_psbts_b64, ARBITER_SK)
+  # Keep unsigned checkpoints — these go to Arkade at submit time
+  trade[:unsigned_checkpoint_txs_b64] = checkpoint_txs_b64
 
-    trade[:delegate_intent_b64] = arbiter_signed_intent
-    trade[:delegate_intent_message_json] = intent_message_json
-    trade[:delegate_forfeit_psbts_b64] = arbiter_signed_forfeits
-    trade[:delegate_cosigner_pk_hex] = cosigner_pk_hex
-    trade[:status] = "releasing_delegate"
-
-    json(
-      trade_id: trade[:id],
-      status: "releasing_delegate",
-      mode: "delegate",
-      cosigner_pk: cosigner_pk_hex,
-      intent_message: intent_message_json,
-      intent_proof_psbt: arbiter_signed_intent,
-      forfeit_psbts: arbiter_signed_forfeits,
-    )
-  else
-    # --- Offchain path (existing) ---
-    ark_tx_b64, checkpoint_txs_b64 = CLIENT.build_release(
-      trade[:contract],
-      trade[:escrow_outpoint],
-      trade[:escrow_amount],
-      bob_dest,
-      fee_outputs,
-    )
-
-    # Keep unsigned checkpoints — these go to Arkade at submit time
-    trade[:unsigned_checkpoint_txs_b64] = checkpoint_txs_b64
-
-    # Arbiter signs everything
-    arbiter_signed_ark_tx = ArkEscrow.sign_ark_tx(ark_tx_b64, ARBITER_SK)
-    arbiter_signed_checkpoints = checkpoint_txs_b64.map do |cp|
-      ArkEscrow.sign_checkpoint(cp, ARBITER_SK)
-    end
-
-    trade[:arbiter_signed_ark_tx_b64] = arbiter_signed_ark_tx
-    trade[:arbiter_signed_checkpoint_txs_b64] = arbiter_signed_checkpoints
-    trade[:status] = "releasing_offchain"
-
-    json(
-      trade_id: trade[:id],
-      status: "releasing_offchain",
-      mode: "offchain",
-      ark_tx_psbt: arbiter_signed_ark_tx,
-      checkpoint_psbts: arbiter_signed_checkpoints,
-    )
+  # Arbiter signs everything
+  arbiter_signed_ark_tx = ArkEscrow.sign_ark_tx(ark_tx_b64, ARBITER_SK)
+  arbiter_signed_checkpoints = checkpoint_txs_b64.map do |cp|
+    ArkEscrow.sign_checkpoint(cp, ARBITER_SK)
   end
+
+  trade[:arbiter_signed_ark_tx_b64] = arbiter_signed_ark_tx
+  trade[:arbiter_signed_checkpoint_txs_b64] = arbiter_signed_checkpoints
+  trade[:status] = "releasing_offchain"
+
+  json(
+    trade_id: trade[:id],
+    status: "releasing_offchain",
+    mode: "offchain",
+    ark_tx_psbt: arbiter_signed_ark_tx,
+    checkpoint_psbts: arbiter_signed_checkpoints,
+  )
 end
 
 # Complete release — Bob's co-signed PSBTs → merge, submit, finalize.
@@ -371,14 +416,10 @@ post "/trades/:id/release/sign" do
   json(trade_id: trade[:id], status: "completed", release_txid: ark_txid)
 end
 
-# Complete delegate settlement — Bob's co-signed delegate PSBTs → batch ceremony.
-#
-# Bob signs the delegate PSBTs (intent + forfeits) returned by /release, then
-# POSTs them here. The arbiter merges signatures, cosigns as delegate, and
-# runs the Arkade batch ceremony (~10-30s).
-post "/trades/:id/release/settle" do
+# Complete Bob-triggered refresh — Bob's co-signed refresh PSBTs → batch ceremony.
+post "/trades/:id/refresh-bob/sign" do
   trade = find_trade!(params[:id])
-  assert_status!(trade, "releasing_delegate")
+  assert_status!(trade, "refreshing_escrow")
 
   body = JSON.parse(request.body.read)
   bob_signed_intent = body["signed_intent_proof"]
@@ -386,28 +427,47 @@ post "/trades/:id/release/settle" do
   halt 400, json(error: "missing signed_intent_proof") unless bob_signed_intent
   halt 400, json(error: "missing signed_forfeit_psbts") unless bob_signed_forfeits
 
-  # Merge arbiter + Bob signatures on intent
-  merged_intent = ArkEscrow.merge_sigs(trade[:delegate_intent_b64], bob_signed_intent)
+  # Merge arbiter + Bob signatures on intent.
+  merged_intent = ArkEscrow.merge_sigs(trade[:refresh_intent_b64], bob_signed_intent)
 
-  # Merge arbiter + Bob signatures on forfeits
-  merged_forfeits = trade[:delegate_forfeit_psbts_b64].zip(bob_signed_forfeits).map do |arb, bob|
+  # Merge arbiter + Bob signatures on forfeits.
+  merged_forfeits = trade[:refresh_forfeit_psbts_b64].zip(bob_signed_forfeits).map do |arb, bob|
     ArkEscrow.merge_sigs(arb, bob)
   end
 
   begin
-    commitment_txid = CLIENT.settle_delegate(
+    commitment_txid = CLIENT.refresh_escrow(
       merged_intent,
-      trade[:delegate_intent_message_json],
+      trade[:refresh_intent_message_json],
       merged_forfeits,
-      DELEGATE_COSIGNER_SK,
+      ARBITER_SK,
     )
+    warn "  escrow refreshed: commitment_txid=#{commitment_txid}"
   rescue => e
-    halt 500, json(error: "delegate settlement failed: #{e.message}")
+    halt 500, json(error: "escrow refresh failed: #{e.message}")
   end
 
-  trade[:status] = "completed"
-  trade[:release_txid] = commitment_txid
-  json(trade_id: trade[:id], status: "completed", commitment_txid: commitment_txid)
+  begin
+    vtxo = wait_for_refreshed_vtxo(trade[:contract], trade[:refresh_previous_outpoint])
+    trade[:escrow_outpoint] = vtxo[0]
+    trade[:escrow_amount] = vtxo[1]
+  rescue => e
+    halt 500, json(error: "refresh succeeded but refreshed VTXO lookup failed: #{e.message}")
+  end
+
+  trade[:refresh_intent_b64] = nil
+  trade[:refresh_intent_message_json] = nil
+  trade[:refresh_forfeit_psbts_b64] = nil
+  trade[:refresh_cosigner_pk_hex] = nil
+  trade[:refresh_previous_outpoint] = nil
+  trade[:status] = "attested"
+  json(
+    trade_id: trade[:id],
+    status: "refreshed",
+    escrow_outpoint: trade[:escrow_outpoint],
+    amount: trade[:escrow_amount],
+    retry_release: true,
+  )
 end
 
 # --- Compute arbiter public key from secret key ---

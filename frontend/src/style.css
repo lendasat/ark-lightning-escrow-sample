@@ -84,6 +84,36 @@ input {
   margin-top: 0.3rem;
 }
 
+.checkbox-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin: 0.75rem 0 0.65rem;
+  padding: 0.65rem 0.75rem;
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+}
+
+.checkbox-option input {
+  width: auto;
+  margin: 0.15rem 0 0;
+  padding: 0;
+}
+
+.checkbox-option strong {
+  display: block;
+  color: #c9d1d9;
+  font-weight: 600;
+}
+
+.checkbox-option small {
+  display: block;
+  margin-top: 0.15rem;
+  color: #8b949e;
+  line-height: 1.35;
+}
+
 .error {
   color: #f85149;
   font-size: 0.85rem;

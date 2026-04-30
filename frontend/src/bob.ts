@@ -15,7 +15,7 @@ import {
 import {
   signEscrowArkTx,
   signEscrowCheckpoints,
-  signEscrowDelegate,
+  signEscrowDelegate as signEscrowRefresh,
   Client,
   InMemorySwapStorage,
   InMemoryWalletStorage,
@@ -119,7 +119,7 @@ async function waitForFunding(tradeId: string, bobSk: string) {
   setStep(2, STEPS);
   show("step-2-body", "Waiting for Alice to fund the escrow...");
 
-  await pollStatus(tradeId, ["funded", "attested", "releasing", "completed"]);
+  await pollStatus(tradeId, ["funded", "attested", "refreshing_escrow", "releasing_offchain", "completed"]);
   const fundedTrade = await getTrade(tradeId);
   const fundTxid = fundedTrade.escrow_outpoint?.split(":")[0];
   const txInfo = fundTxid ? ` — tx: ${txLink(fundTxid)}` : "";
@@ -135,7 +135,7 @@ async function waitForAttestation(tradeId: string, bobSk: string) {
   setStep(3, STEPS);
   show("step-3-body", "Waiting for attestation...");
 
-  await pollStatus(tradeId, ["attested", "releasing", "completed"]);
+  await pollStatus(tradeId, ["attested", "refreshing_escrow", "releasing_offchain", "completed"]);
   show("step-3-body", '<span class="info">✓ Attested</span>');
   showClaimForm(tradeId, bobSk);
 }
@@ -161,12 +161,21 @@ async function showClaimForm(tradeId: string, bobSk: string) {
   const protocolFee = Number(quote.protocol_fee) || 0;
   const targetAmount = sourceAmount - protocolFee;
 
+  const mustRefresh = trade.release_mode === "refresh";
+  const refreshNote = mustRefresh
+    ? "Escrow refresh is required before claim."
+    : "Optional: useful for manually testing the refresh flow.";
+
   show(
     "step-4-body",
     `<p>Escrow release: <strong>${sourceAmount.toLocaleString()} sats</strong></p>
      <p>You'll receive <strong>${targetAmount.toLocaleString()} sats</strong> via Lightning (after swap fees).</p>
      <label>Lightning invoice or Lightning address
        <input id="ln-dest" placeholder="lnbc… / user@wallet.com" />
+     </label>
+     <label class="checkbox-option">
+       <input id="refresh-before-claim" type="checkbox" ${mustRefresh ? "checked disabled" : ""} />
+       <span><strong>Refresh escrow before claim</strong><small>${refreshNote}</small></span>
      </label>
      <p style="margin-top:0.3rem; font-size:0.85rem; opacity:0.7">
        BOLT11 invoice must be for exactly ${targetAmount.toLocaleString()} sats.
@@ -190,7 +199,8 @@ async function showClaimForm(tradeId: string, bobSk: string) {
     show("claim-err", "");
 
     try {
-      await doClaim(tradeId, bobSk, toSwapOptions(parsed, targetAmount));
+      const refreshBeforeClaim = ($("refresh-before-claim") as HTMLInputElement).checked;
+      await doClaim(tradeId, bobSk, toSwapOptions(parsed, targetAmount), refreshBeforeClaim);
     } catch (e: any) {
       show("claim-err", e.message);
       ($("btn-claim") as HTMLButtonElement).disabled = false;
@@ -202,71 +212,91 @@ async function doClaim(
   tradeId: string,
   bobSk: string,
   swapOptions: { lightningInvoice?: string; lightningAddress?: string; amountSats?: number },
+  refreshBeforeClaim: boolean,
 ) {
-  // 1. Create Arkade→Lightning swap to get a VHTLC destination
   show("claim-err", "");
+
+  // 1. If needed, refresh the escrow before creating the Lightning swap. This
+  // avoids starting the swap/VHTLC timer while the refresh batch is running.
+  await refreshEscrowIfNeeded(tradeId, bobSk, refreshBeforeClaim);
+
+  // 2. Create Arkade→Lightning swap to get a VHTLC destination.
   showProgress("Creating Lightning swap...");
   const lsClient = await buildLendaswapClient();
   const swap = await lsClient.createArkadeToLightningSwap(swapOptions);
   const vhtlcAddress = swap.response.arkade_vhtlc_address;
   const swapId = swap.response.id;
 
-  // 2. Release escrow to the VHTLC address — server checks VTXO status and
-  //    returns either offchain PSBTs or delegate PSBTs.
+  // 3. Release the now-spendable escrow to the VHTLC address.
+  const arkTxid = await releaseEscrowToVhtlc(tradeId, vhtlcAddress, bobSk);
+
+  show(
+    "step-4-body",
+    `<span class="info">✓ Escrow released to swap VHTLC — tx: ${txLink(arkTxid)}</span>`,
+  );
+
+  // 4. Wait for lendaswap to complete the Lightning payment
+  await waitForLightningPayment(lsClient, swapId);
+}
+
+async function refreshEscrowIfNeeded(
+  tradeId: string,
+  bobSk: string,
+  refreshBeforeClaim: boolean,
+) {
+  const trade = await getTrade(tradeId);
+  if (trade.release_mode !== "refresh" && !refreshBeforeClaim) return;
+
+  showProgress("Preparing escrow refresh...");
+  const refresh = await api("POST", `/trades/${tradeId}/refresh-bob`);
+
+  showProgress("Signing refresh PSBTs...");
+  const { signedIntentProof, signedForfeitPsbts } = await signEscrowRefresh(
+    refresh.intent_proof_psbt,
+    refresh.forfeit_psbts,
+    bobSk,
+  );
+
+  showProgress("Refreshing escrow via Arkade batch (this may take ~30s)...");
+  await api("POST", `/trades/${tradeId}/refresh-bob/sign`, {
+    signed_intent_proof: signedIntentProof,
+    signed_forfeit_psbts: signedForfeitPsbts,
+  });
+
+  showProgress("Escrow refreshed.");
+}
+
+async function releaseEscrowToVhtlc(
+  tradeId: string,
+  vhtlcAddress: string,
+  bobSk: string,
+): Promise<string> {
   showProgress("Requesting release from server...");
   const release = await api("POST", `/trades/${tradeId}/release`, {
     bob_dest_address: vhtlcAddress,
   });
 
-  if (release.mode === "delegate") {
-    // --- Delegate settlement path (recoverable VTXO) ---
-    showProgress("Signing delegate PSBTs...");
-    const { signedIntentProof, signedForfeitPsbts } = await signEscrowDelegate(
-      release.intent_proof_psbt,
-      release.forfeit_psbts,
-      bobSk,
-    );
-
-    showProgress("Settling via Arkade batch (this may take ~30s)...");
-    const settleResult = await api(
-      "POST",
-      `/trades/${tradeId}/release/settle`,
-      {
-        signed_intent_proof: signedIntentProof,
-        signed_forfeit_psbts: signedForfeitPsbts,
-      },
-    );
-
-    show(
-      "step-4-body",
-      `<span class="info">✓ Escrow settled via delegate — commitment: ${txLink(settleResult.commitment_txid)}</span>`,
-    );
-  } else {
-    // --- Offchain path (spendable VTXO, existing flow) ---
-    showProgress("Signing transactions...");
-    const { signedPsbt: signedArkTx, txid: arkTxid } = signEscrowArkTx(
-      release.ark_tx_psbt,
-      bobSk,
-    );
-    const signedCheckpoints = signEscrowCheckpoints(
-      release.checkpoint_psbts,
-      bobSk,
-    );
-
-    showProgress("Submitting to Arkade...");
-    await api("POST", `/trades/${tradeId}/release/sign`, {
-      signed_ark_tx: signedArkTx,
-      signed_checkpoints: signedCheckpoints,
-    });
-
-    show(
-      "step-4-body",
-      `<span class="info">✓ Escrow released to swap VHTLC — tx: ${txLink(arkTxid)}</span>`,
-    );
+  if (release.mode !== "offchain") {
+    throw new Error(`Unexpected release mode: ${release.mode}`);
   }
 
-  // 7. Wait for lendaswap to complete the Lightning payment
-  await waitForLightningPayment(lsClient, swapId);
+  showProgress("Signing transactions...");
+  const { signedPsbt: signedArkTx, txid: arkTxid } = signEscrowArkTx(
+    release.ark_tx_psbt,
+    bobSk,
+  );
+  const signedCheckpoints = signEscrowCheckpoints(
+    release.checkpoint_psbts,
+    bobSk,
+  );
+
+  showProgress("Submitting to Arkade...");
+  await api("POST", `/trades/${tradeId}/release/sign`, {
+    signed_ark_tx: signedArkTx,
+    signed_checkpoints: signedCheckpoints,
+  });
+
+  return arkTxid;
 }
 
 /** Show progress text below the claim form without destroying the inputs. */

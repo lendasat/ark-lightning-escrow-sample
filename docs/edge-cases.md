@@ -19,8 +19,8 @@ _`ark-escrow` now covers this._
 
 ## Escrow contract expires and becomes recoverable
 
-- Instead of offchain transaction (no longer possible when in recoverable state), join an Arkade batch (settlement) via the arbiter backend (we do this in Lendasat and LendaSwap, for example).
-- To optimise this we use a delegate approach (Arkade implementation detail).
+- Instead of trying to release directly from recoverable state, first refresh the escrow VTXO back into the same escrow address via the arbiter backend.
+- After the refreshed escrow VTXO is spendable again, run the normal offchain release/refund flow.
 - It's just another mode of *spending* in Arkade.
 
 _`ark-escrow` + `@lendasat/lendaswap-sdk-pure` now cover this._
@@ -30,7 +30,7 @@ _`ark-escrow` + `@lendasat/lendaswap-sdk-pure` now cover this._
 - After the exit VHTLC has been funded (transaction from escrow to VHTLC), if Boltz encounters an error paying the Lightning invoice, the only way to continue is to refund the VHTLC (collaboratively with Boltz for convenience/speed or unilaterally after a timelock expires).
 - Lendaswap *could* offer a feature to retry, by routing the refund into another Boltz VHTLC (a new Arkade-LN swap).
 - Alternatively, refund could go into an Arkade wallet for the client. Retry would then be executed at that level instead.
-- Since the Boltz VHTLC is just another type of VTXO, it can also expire and become recoverable. In such a scenario, refund would require settlement (either independently on the client or aided by the escrow server, which isn't involved in that VHTLC, but can help via Arkade delegate system).
+- Since the Boltz VHTLC is just another type of VTXO, it can also expire and become recoverable. In such a scenario, refund would require refreshing/settling that VTXO independently on the client or with help from infrastructure that participates in that contract.
 
 _Our libraries should help you with this. To be implemented._
 
