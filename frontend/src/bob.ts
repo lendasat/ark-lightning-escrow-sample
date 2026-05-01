@@ -73,6 +73,15 @@ function toSwapOptions(
   return { lightningAddress: input.address, amountSats };
 }
 
+function toRetryOptions(
+  input: LnInput,
+): { lightningInvoice?: string; lightningAddress?: string } {
+  if (input.type === "bolt11") {
+    return { lightningInvoice: input.invoice };
+  }
+  return { lightningAddress: input.address };
+}
+
 // ---------------------------------------------------------------------------
 // Main flow
 // ---------------------------------------------------------------------------
@@ -228,7 +237,13 @@ async function doClaim(
   const swapId = swap.response.id;
 
   // 3. Release the now-spendable escrow to the VHTLC address.
-  const arkTxid = await releaseEscrowToVhtlc(tradeId, vhtlcAddress, bobSk);
+  let arkTxid: string;
+  try {
+    arkTxid = await releaseEscrowToVhtlc(tradeId, vhtlcAddress, bobSk);
+  } catch (e: any) {
+    await handleReleaseFailure(lsClient, swapId, e);
+    return;
+  }
 
   show(
     "step-4-body",
@@ -237,6 +252,26 @@ async function doClaim(
 
   // 4. Wait for lendaswap to complete the Lightning payment
   await waitForLightningPayment(lsClient, swapId);
+}
+
+async function handleReleaseFailure(
+  lsClient: Client,
+  swapId: string,
+  error: any,
+) {
+  let swap;
+  try {
+    swap = await lsClient.getSwap(swapId, { updateStorage: true });
+  } catch {
+    throw error;
+  }
+
+  if (isRetryableArkadeLightningFailure(swap.status)) {
+    await showArkadeLightningRetryForm(lsClient, swapId, swap.status);
+    return;
+  }
+
+  throw error;
 }
 
 async function refreshEscrowIfNeeded(
@@ -314,6 +349,7 @@ async function waitForLightningPayment(lsClient: Client, swapId: string) {
   const DONE = ["serverredeemed"];
   const TERMINAL_FAIL = [
     "expired",
+    "serverwontfund",
     "clientrefunded",
     "clientfundedserverrefunded",
     "clientrefundedserverrefunded",
@@ -341,6 +377,11 @@ async function waitForLightningPayment(lsClient: Client, swapId: string) {
     }
 
     if (TERMINAL_FAIL.includes(status)) {
+      if (isRetryableArkadeLightningFailure(status)) {
+        await showArkadeLightningRetryForm(lsClient, swapId, status);
+        return;
+      }
+
       showRetryError(
         "step-5-body",
         `Swap failed: ${status}`,
@@ -358,6 +399,77 @@ async function waitForLightningPayment(lsClient: Client, swapId: string) {
     show("step-5-body", label);
     await sleep(3000);
   }
+}
+
+function isRetryableArkadeLightningFailure(status: string): boolean {
+  return status === "serverwontfund" || status === "clientinvalidfunded";
+}
+
+async function showArkadeLightningRetryForm(
+  lsClient: Client,
+  swapId: string,
+  status: string,
+) {
+  setStep(5, STEPS);
+
+  let expectedAmount: number | null = null;
+  try {
+    const oldSwap = await lsClient.getSwap(swapId, { updateStorage: true });
+    const sourceAmount = Number((oldSwap as any).boltz_amount_sats);
+    if (Number.isFinite(sourceAmount) && sourceAmount > 0) {
+      const quote = await lsClient.getArkadeToLightningQuote(sourceAmount);
+      expectedAmount = Number(quote.target_amount);
+    }
+  } catch {
+    // The retry API still works with a Lightning address even if the quote fails.
+  }
+
+  const invoiceHint = expectedAmount
+    ? `If using a BOLT11 invoice, generate it for exactly ${expectedAmount.toLocaleString()} sats.`
+    : "If using a BOLT11 invoice, it must be for the retry quote amount. A Lightning address resolves automatically.";
+
+  show(
+    "step-5-body",
+    `<span class="error">Lightning payment failed: ${status}</span>
+     <p>The escrow funds are in the failed swap VHTLC. Retry with a new Lightning invoice or Lightning address.</p>
+     <label>New Lightning invoice or Lightning address
+       <input id="retry-ln-dest" placeholder="lnbc… / user@wallet.com" />
+     </label>
+     <p style="margin-top:0.3rem; font-size:0.85rem; opacity:0.7">${invoiceHint}</p>
+     <button id="btn-retry-ln">Retry Lightning payment</button>
+     <div id="retry-ln-err" class="error"></div>`,
+  );
+
+  $("btn-retry-ln").addEventListener("click", async () => {
+    const raw = ($("retry-ln-dest") as HTMLInputElement).value.trim();
+    const parsed = classifyInput(raw);
+    if (!parsed) {
+      show(
+        "retry-ln-err",
+        "Paste a BOLT11 invoice or Lightning address (user@domain)",
+      );
+      return;
+    }
+
+    const btn = $("btn-retry-ln") as HTMLButtonElement;
+    btn.disabled = true;
+    show("retry-ln-err", "Retrying swap...");
+
+    try {
+      const result = await lsClient.retryArkadeToLightningSwap(
+        swapId,
+        toRetryOptions(parsed),
+      );
+      show(
+        "retry-ln-err",
+        `<span class="info">✓ Retried via refund tx ${txLink(result.refundTxId)}</span>`,
+      );
+      await waitForLightningPayment(lsClient, result.newSwap.id);
+    } catch (e: any) {
+      show("retry-ln-err", e.message);
+      btn.disabled = false;
+    }
+  });
 }
 
 /** Show an error with a retry button that re-runs the callback. */
