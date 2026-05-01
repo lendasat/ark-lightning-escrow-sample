@@ -8,8 +8,9 @@
   },
   "dependencies": {
     "@arkade-os/sdk": "^0.4.4",
-    "@lendasat/lendaswap-sdk-pure": "^0.2.24",
+    "@lendasat/lendaswap-sdk-pure": "^0.2.25",
     "@scure/base": "^2.0.0",
+    "events": "^3.3.0",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
