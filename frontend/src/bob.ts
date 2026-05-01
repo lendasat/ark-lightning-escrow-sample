@@ -82,6 +82,12 @@ function toRetryOptions(
   return { lightningAddress: input.address };
 }
 
+function releaseDelayMs(): number {
+  const raw = new URLSearchParams(window.location.search).get("releaseDelayMs");
+  const delay = raw ? Number(raw) : 0;
+  return Number.isFinite(delay) && delay > 0 ? delay : 0;
+}
+
 // ---------------------------------------------------------------------------
 // Main flow
 // ---------------------------------------------------------------------------
@@ -235,6 +241,14 @@ async function doClaim(
   const swap = await lsClient.createArkadeToLightningSwap(swapOptions);
   const vhtlcAddress = swap.response.arkade_vhtlc_address;
   const swapId = swap.response.id;
+
+  const delayMs = releaseDelayMs();
+  if (delayMs > 0) {
+    showProgress(
+      `Debug: waiting ${Math.round(delayMs / 1000)}s before funding the VHTLC...`,
+    );
+    await sleep(delayMs);
+  }
 
   // 3. Release the now-spendable escrow to the VHTLC address.
   let arkTxid: string;
