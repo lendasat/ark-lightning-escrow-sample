@@ -279,7 +279,7 @@ post "/trades/:id/refresh-bob" do
     CLIENT.prepare_refresh(
       trade[:contract],
       vtxos_data,
-      "release",
+      "buyer_arbiter",
       ARBITER_SK,
     )
 
@@ -352,6 +352,7 @@ post "/trades/:id/release" do
     trade[:escrow_amount],
     bob_dest,
     fee_outputs,
+    "buyer_arbiter",
   )
 
   # Keep unsigned checkpoints — these go to Arkade at submit time

@@ -27,12 +27,12 @@ Six taproot leaves in a weighted Huffman tree:
 
 | # | Leaf | Signers | Condition |
 |---|------|---------|-----------|
-| 1 | Alice + Arbiter + Server | Collaborative refund | — |
-| 2 | Bob + Arbiter + Server | Collaborative release | — |
-| 3 | Alice + Bob + Server | Collaborative mutual settlement | — |
-| 4 | Alice + Arbiter | Unilateral refund | CSV delay |
-| 5 | Bob + Arbiter | Unilateral release | CSV delay |
-| 6 | Alice + Bob | Unilateral mutual settlement | CSV delay |
+| 1 | Seller + Arbiter + Server | Collaborative spend | — |
+| 2 | Buyer + Arbiter + Server | Collaborative spend | — |
+| 3 | Seller + Buyer + Server | Collaborative mutual settlement | — |
+| 4 | Seller + Arbiter | Unilateral spend | CSV delay |
+| 5 | Buyer + Arbiter | Unilateral spend | CSV delay |
+| 6 | Seller + Buyer | Unilateral mutual settlement | CSV delay |
 
 ## Prerequisites
 
@@ -74,9 +74,9 @@ FEE_OUTPUTS_JSON='[["tark1q...",500],["tark1q...",400]]'
 1. **Create** — TS client sends Alice + Bob pubkeys → server builds escrow contract, returns address
 2. **Fund** — Alice sends sats to the escrow address via Arkade
 3. **Attest** — Server confirms off-chain condition (e.g. ERC20 transfer)
-4. **Bob refreshes if needed** — If `release_mode` is `refresh` (or Bob ticks the sample's “refresh before claim” checkbox), Bob signs refresh PSBTs via `/refresh-bob` and the arbiter refreshes the escrow back into the same address
+4. **Bob refreshes if needed** — If `release_mode` is `refresh` (or Bob ticks the sample's “refresh before claim” checkbox), Bob signs refresh PSBTs via `/refresh-bob` and the arbiter refreshes the escrow back into the same address using the `buyer_arbiter` signer set
 5. **Create swap** — Bob creates the Lightning swap only after the escrow is spendable
-6. **Release** — Arbiter builds release tx, signs everything, returns PSBTs to Bob
+6. **Release** — Arbiter builds release tx with signer set `buyer_arbiter`, signs everything, returns PSBTs to Bob
 7. **Sign** — Bob signs all PSBTs in one round (`signEscrowArkTx()` + `signEscrowCheckpoints()`)
 8. **Complete** — Arbiter merges signatures, submits to Arkade, finalizes
 
