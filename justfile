@@ -30,11 +30,12 @@ install:
 
 # --- Demo environment ---
 # Requires: nigiri + arkd + fulmine running (regtest stack)
-# Override with env vars: ARKADE_URL, ARBITER_PORT, FRONTEND_PORT, ARBITER_SK,
-# FEE_OUTPUTS_JSON
+# Override with env vars: ARKADE_URL, ARKADE_TIMEOUT_MS, ARBITER_PORT,
+# FRONTEND_PORT, ARBITER_SK, FEE_OUTPUTS_JSON
 
-ARKADE_URL       := env("ARKADE_URL", "http://localhost:7070")
-NETWORK          := env("NETWORK", "regtest")
+ARKADE_URL        := env("ARKADE_URL", "http://localhost:7070")
+ARKADE_TIMEOUT_MS := env("ARKADE_TIMEOUT_MS", "30000")
+NETWORK           := env("NETWORK", "regtest")
 ARBITER_PORT    := env("ARBITER_PORT", "4567")
 FRONTEND_PORT    := env("FRONTEND_PORT", "3001")
 ARBITER_SK       := env("ARBITER_SK", "0000000000000000000000000000000000000000000000000000000000000001")
@@ -56,6 +57,7 @@ up: build-ruby
     (cd {{ROOT}}/sample/server && \
       ARBITER_SK={{ARBITER_SK}} \
       ARKADE_URL={{ARKADE_URL}} \
+      ARKADE_TIMEOUT_MS={{ARKADE_TIMEOUT_MS}} \
       NETWORK={{NETWORK}} \
       FEE_OUTPUTS_JSON='{{FEE_OUTPUTS_JSON}}' \
       bundle exec ruby arbiter.rb -o 127.0.0.1 -p {{ARBITER_PORT}} > /tmp/arbiter.log 2>&1 &) &
@@ -88,6 +90,7 @@ restart-server: build-ruby
     (cd {{ROOT}}/sample/server && \
       ARBITER_SK={{ARBITER_SK}} \
       ARKADE_URL={{ARKADE_URL}} \
+      ARKADE_TIMEOUT_MS={{ARKADE_TIMEOUT_MS}} \
       NETWORK={{NETWORK}} \
       FEE_OUTPUTS_JSON='{{FEE_OUTPUTS_JSON}}' \
       bundle exec ruby arbiter.rb -o 127.0.0.1 -p {{ARBITER_PORT}} > /tmp/arbiter.log 2>&1 &) &

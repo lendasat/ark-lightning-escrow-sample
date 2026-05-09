@@ -58,6 +58,7 @@ Copy `.env.sample` to `.env` and adjust as needed. Key settings:
 | Variable | Description |
 |----------|-------------|
 | `ARKADE_URL` | Arkade server URL |
+| `ARKADE_TIMEOUT_MS` | Arkade request timeout in milliseconds (`0` disables timeouts) |
 | `NETWORK` | `regtest`, `mutinynet`, `signet`, or `bitcoin` |
 | `ARBITER_SK` | Arbiter secret key (hex) |
 | `FEE_OUTPUTS_JSON` | Release fee outputs as JSON array of `[address, sats]` pairs |

@@ -21,6 +21,7 @@ $stderr.sync = true
 # --- Configuration ---
 
 ARKADE_URL = ENV.fetch("ARKADE_URL", "http://localhost:7070")
+ARKADE_TIMEOUT_MS = Integer(ENV.fetch("ARKADE_TIMEOUT_MS", "30000"))
 ARBITER_SK = ENV.fetch("ARBITER_SK") # hex-encoded secret key
 NETWORK = ENV.fetch("NETWORK", "regtest")
 
@@ -67,7 +68,11 @@ class CallbackSpendStore
 end
 
 SPEND_STORE = CallbackSpendStore.new
-CLIENT = ArkEscrow::Client.with_custom_store(ARKADE_URL, SPEND_STORE)
+CLIENT = ArkEscrow::Client.with_custom_store(
+  ARKADE_URL,
+  SPEND_STORE,
+  timeout_ms: ARKADE_TIMEOUT_MS,
+)
 
 configure do
   CLIENT.connect
@@ -489,6 +494,7 @@ end
 ARBITER_SK_PK = compute_xonly_pk(ARBITER_SK)
 
 puts "Arbiter server starting..."
-puts "  Arkade URL: #{ARKADE_URL}"
-puts "  Arbiter PK: #{ARBITER_SK_PK}"
-puts "  Network:    #{NETWORK}"
+puts "  Arkade URL:       #{ARKADE_URL}"
+puts "  Arkade timeout:   #{ARKADE_TIMEOUT_MS}ms"
+puts "  Arbiter PK:       #{ARBITER_SK_PK}"
+puts "  Network:          #{NETWORK}"
