@@ -432,7 +432,7 @@ async function showArkadeLightningRetryForm(
     const sourceAmount = Number((oldSwap as any).boltz_amount_sats);
     if (Number.isFinite(sourceAmount) && sourceAmount > 0) {
       const quote = await lsClient.getArkadeToLightningQuote(sourceAmount);
-      expectedAmount = Number(quote.target_amount);
+      expectedAmount = Number(quote.net_target_amount);
     }
   } catch {
     // The retry API still works with a Lightning address even if the quote fails.
