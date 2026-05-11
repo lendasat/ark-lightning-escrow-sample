@@ -20,6 +20,7 @@ import {
   InMemorySwapStorage,
   InMemoryWalletStorage,
 } from "@lendasat/lendaswap-sdk-pure";
+import { decode as decodeBolt11 } from "light-bolt11-decoder";
 import "./style.css";
 
 const STEPS = 5;
@@ -88,6 +89,36 @@ function parseSats(value: unknown, name: string): number {
     throw new Error(`Invalid ${name}: ${value}`);
   }
   return amount;
+}
+
+function bolt11AmountSats(invoice: string): number {
+  const decoded = decodeBolt11(invoice);
+  const amount = decoded.sections.find((section) => section.name === "amount");
+  if (!amount || amount.name !== "amount") {
+    throw new Error("BOLT11 invoice must include an amount");
+  }
+
+  const msats = BigInt(amount.value);
+  if (msats % 1000n !== 0n) {
+    throw new Error("BOLT11 invoice amount must be an exact satoshi amount");
+  }
+
+  const sats = msats / 1000n;
+  if (sats <= 0n || sats > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error("Invalid BOLT11 invoice amount");
+  }
+  return Number(sats);
+}
+
+function validateBolt11Amount(input: LnInput, expectedSats: number) {
+  if (input.type !== "bolt11") return;
+
+  const invoiceSats = bolt11AmountSats(input.invoice);
+  if (invoiceSats !== expectedSats) {
+    throw new Error(
+      `BOLT11 invoice amount is ${invoiceSats.toLocaleString()} sats, expected ${expectedSats.toLocaleString()} sats`,
+    );
+  }
 }
 
 function releaseDelayMs(): number {
@@ -220,6 +251,7 @@ async function showClaimForm(tradeId: string, bobSk: string) {
     show("claim-err", "");
 
     try {
+      validateBolt11Amount(parsed, targetAmount);
       const refreshBeforeClaim = ($("refresh-before-claim") as HTMLInputElement).checked;
       await doClaim(tradeId, bobSk, toSwapOptions(parsed, targetAmount), refreshBeforeClaim);
     } catch (e: any) {

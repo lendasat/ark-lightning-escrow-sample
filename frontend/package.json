@@ -11,6 +11,7 @@
     "@lendasat/lendaswap-sdk-pure": "0.2.30",
     "@scure/base": "^2.0.0",
     "events": "^3.3.0",
+    "light-bolt11-decoder": "^3.2.0",
     "qrcode": "^1.5.4"
   },
   "devDependencies": {
