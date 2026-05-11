@@ -82,6 +82,14 @@ function toRetryOptions(
   return { lightningAddress: input.address };
 }
 
+function parseSats(value: unknown, name: string): number {
+  const amount = typeof value === "number" ? value : Number(value);
+  if (!Number.isSafeInteger(amount) || amount <= 0) {
+    throw new Error(`Invalid ${name}: ${value}`);
+  }
+  return amount;
+}
+
 function releaseDelayMs(): number {
   const raw = new URLSearchParams(window.location.search).get("releaseDelayMs");
   const delay = raw ? Number(raw) : 0;
@@ -159,10 +167,10 @@ async function showClaimForm(tradeId: string, bobSk: string) {
   setStep(4, STEPS);
 
   const trade = await getTrade(tradeId);
-  const sourceAmount = trade.releasable_amount;
-  if (sourceAmount == null) {
+  if (trade.releasable_amount == null) {
     throw new Error("Trade is not ready to quote a releasable amount yet");
   }
+  const sourceAmount = parseSats(trade.releasable_amount, "releasable amount");
 
   // Quote the swap to find the actual Lightning amount after Boltz fees.
   // releasable_amount is the SOURCE (what funds the VHTLC), not the target.
@@ -171,10 +179,8 @@ async function showClaimForm(tradeId: string, bobSk: string) {
   );
   if (!quoteRes.ok) throw new Error(`Quote failed: ${quoteRes.status}`);
   const quote = await quoteRes.json();
-  // The VHTLC funding amount = target + protocol_fee, so to match our
-  // source amount exactly we subtract the fee from the target.
-  const protocolFee = Number(quote.protocol_fee) || 0;
-  const targetAmount = sourceAmount - protocolFee;
+
+  const targetAmount = parseSats(quote.net_target_amount, "quote amount");
 
   const mustRefresh = trade.release_mode === "refresh";
   const refreshNote = mustRefresh
