@@ -12,8 +12,8 @@ importers:
         specifier: ^0.4.4
         version: 0.4.19
       '@lendasat/lendaswap-sdk-pure':
-        specifier: ^0.2.25
-        version: 0.2.25(typescript@5.9.3)
+        specifier: 0.2.30
+        version: 0.2.30(typescript@5.9.3)
       '@scure/base':
         specifier: ^2.0.0
         version: 2.2.0
@@ -261,8 +261,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@lendasat/lendaswap-sdk-pure@0.2.25':
-    resolution: {integrity: sha512-8JFtAOEd+NakflFump8fPLABMNdWd72BLo+lWmoZi9dmSv6s/XyS24Fvopl8nsgNmFBunaUMgX9nPdbBRVSs4w==}
+  '@lendasat/lendaswap-sdk-pure@0.2.30':
+    resolution: {integrity: sha512-+5yu/3V6rZjGnwBMND7u2E1caUhqnobXTtwbLJK9+j3/RQd1CNTp6PSj4oLiKCw8f0t72Qh6SQTs1PD/zacqUw==}
     peerDependencies:
       '@circle-fin/adapter-viem-v2': ^1.8.0
       '@circle-fin/bridge-kit': ^1.8.0
@@ -1045,7 +1045,7 @@ snapshots:
   '@esbuild/win32-x64@0.25.12':
     optional: true
 
-  '@lendasat/lendaswap-sdk-pure@0.2.25(typescript@5.9.3)':
+  '@lendasat/lendaswap-sdk-pure@0.2.30(typescript@5.9.3)':
     dependencies:
       '@arkade-os/sdk': 0.4.19
       '@noble/curves': 2.2.0
