@@ -194,34 +194,49 @@ async function waitForAttestation(tradeId: string, bobSk: string) {
   showClaimForm(tradeId, bobSk);
 }
 
-async function showClaimForm(tradeId: string, bobSk: string) {
-  setStep(4, STEPS);
-
-  const trade = await getTrade(tradeId);
-  if (trade.releasable_amount == null) {
-    throw new Error("Trade is not ready to quote a releasable amount yet");
-  }
-  const sourceAmount = parseSats(trade.releasable_amount, "releasable amount");
-
-  // Quote the swap to find the actual Lightning amount after Boltz fees.
-  // releasable_amount is the SOURCE (what funds the VHTLC), not the target.
+async function quoteLightningTargetAmount(sourceAmount: number): Promise<number> {
   const quoteRes = await fetch(
     `${LENDASWAP_URL}/quote?source_chain=Arkade&source_token=btc&target_chain=Lightning&target_token=btc&source_amount=${sourceAmount}`,
   );
   if (!quoteRes.ok) throw new Error(`Quote failed: ${quoteRes.status}`);
   const quote = await quoteRes.json();
+  return parseSats(quote.net_target_amount, "quote amount");
+}
 
-  const targetAmount = parseSats(quote.net_target_amount, "quote amount");
+async function showClaimForm(tradeId: string, bobSk: string) {
+  setStep(4, STEPS);
+
+  const trade = await getTrade(tradeId);
+  const vtxos = trade.escrow_vtxos ?? [];
+  const defaultVtxo = vtxos.find((v) => v.outpoint === trade.selected_escrow_outpoint) ?? vtxos[0];
+  let selectedOutpoint = defaultVtxo?.outpoint;
+  let sourceAmount = parseSats(
+    defaultVtxo?.releasable_amount ?? trade.releasable_amount,
+    "releasable amount",
+  );
+  let targetAmount = await quoteLightningTargetAmount(sourceAmount);
 
   const mustRefresh = trade.release_mode === "refresh";
   const refreshNote = mustRefresh
     ? "Escrow refresh is required before claim."
     : "Optional: useful for manually testing the refresh flow.";
 
+  const vtxoSelector = vtxos.length > 0
+    ? `<details style="margin:0.75rem 0">
+         <summary>Test control: choose escrow output</summary>
+         <label>Escrow output
+           <select id="escrow-outpoint">
+             ${vtxos.map((v) => `<option value="${v.outpoint}" ${v.outpoint === selectedOutpoint ? "selected" : ""}>${v.amount.toLocaleString()} sats — ${v.outpoint}${v.is_swept ? " (swept/recoverable)" : ""}</option>`).join("")}
+           </select>
+         </label>
+       </details>`
+    : "";
+
   show(
     "step-4-body",
-    `<p>Escrow release: <strong>${sourceAmount.toLocaleString()} sats</strong></p>
-     <p>You'll receive <strong>${targetAmount.toLocaleString()} sats</strong> via Lightning (after swap fees).</p>
+    `<p>Escrow release: <strong id="source-amount">${sourceAmount.toLocaleString()} sats</strong></p>
+     <p>You'll receive <strong id="target-amount">${targetAmount.toLocaleString()} sats</strong> via Lightning (after swap fees).</p>
+     ${vtxoSelector}
      <label>Lightning invoice or Lightning address
        <input id="ln-dest" placeholder="lnbc… / user@wallet.com" />
      </label>
@@ -230,12 +245,26 @@ async function showClaimForm(tradeId: string, bobSk: string) {
        <span><strong>Refresh escrow before claim</strong><small>${refreshNote}</small></span>
      </label>
      <p style="margin-top:0.3rem; font-size:0.85rem; opacity:0.7">
-       BOLT11 invoice must be for exactly ${targetAmount.toLocaleString()} sats.
+       BOLT11 invoice must be for exactly <span id="invoice-amount">${targetAmount.toLocaleString()}</span> sats.
        Lightning addresses resolve automatically.
      </p>
      <button id="btn-claim">Claim via Lightning →</button>
      <div id="claim-err" class="error"></div>`,
   );
+
+  const select = document.getElementById("escrow-outpoint") as HTMLSelectElement | null;
+  select?.addEventListener("change", async () => {
+    const chosen = vtxos.find((v) => v.outpoint === select.value);
+    if (!chosen) return;
+    selectedOutpoint = chosen.outpoint;
+    sourceAmount = parseSats(chosen.releasable_amount, "releasable amount");
+    show("claim-err", "Updating quote...");
+    targetAmount = await quoteLightningTargetAmount(sourceAmount);
+    $("source-amount").textContent = `${sourceAmount.toLocaleString()} sats`;
+    $("target-amount").textContent = `${targetAmount.toLocaleString()} sats`;
+    $("invoice-amount").textContent = targetAmount.toLocaleString();
+    show("claim-err", "");
+  });
 
   $("btn-claim").addEventListener("click", async () => {
     const raw = ($("ln-dest") as HTMLInputElement).value.trim();
@@ -253,7 +282,13 @@ async function showClaimForm(tradeId: string, bobSk: string) {
     try {
       validateBolt11Amount(parsed, targetAmount);
       const refreshBeforeClaim = ($("refresh-before-claim") as HTMLInputElement).checked;
-      await doClaim(tradeId, bobSk, toSwapOptions(parsed, targetAmount), refreshBeforeClaim);
+      await doClaim(
+        tradeId,
+        bobSk,
+        toSwapOptions(parsed, targetAmount),
+        refreshBeforeClaim,
+        refreshBeforeClaim ? undefined : selectedOutpoint,
+      );
     } catch (e: any) {
       show("claim-err", e.message);
       ($("btn-claim") as HTMLButtonElement).disabled = false;
@@ -266,6 +301,7 @@ async function doClaim(
   bobSk: string,
   swapOptions: { lightningInvoice?: string; lightningAddress?: string; amountSats?: number },
   refreshBeforeClaim: boolean,
+  escrowOutpoint?: string,
 ) {
   show("claim-err", "");
 
@@ -291,7 +327,7 @@ async function doClaim(
   // 3. Release the now-spendable escrow to the VHTLC address.
   let arkTxid: string;
   try {
-    arkTxid = await releaseEscrowToVhtlc(tradeId, vhtlcAddress, bobSk);
+    arkTxid = await releaseEscrowToVhtlc(tradeId, vhtlcAddress, bobSk, escrowOutpoint);
   } catch (e: any) {
     await handleReleaseFailure(lsClient, swapId, e);
     return;
@@ -357,10 +393,12 @@ async function releaseEscrowToVhtlc(
   tradeId: string,
   vhtlcAddress: string,
   bobSk: string,
+  escrowOutpoint?: string,
 ): Promise<string> {
   showProgress("Requesting release from server...");
   const release = await api("POST", `/trades/${tradeId}/release`, {
     bob_dest_address: vhtlcAddress,
+    escrow_outpoint: escrowOutpoint,
   });
 
   if (release.mode !== "offchain") {

@@ -42,6 +42,13 @@ export async function api(
   return JSON.parse(text);
 }
 
+export interface EscrowVtxo {
+  outpoint: string;
+  amount: number;
+  releasable_amount?: number;
+  is_swept?: boolean;
+}
+
 export interface Trade {
   trade_id: string;
   status: string;
@@ -49,6 +56,8 @@ export interface Trade {
   amount?: number;
   releasable_amount?: number;
   release_mode?: "offchain" | "refresh";
+  escrow_vtxos?: EscrowVtxo[];
+  selected_escrow_outpoint?: string;
   escrow_outpoint?: string;
   release_txid?: string;
 }

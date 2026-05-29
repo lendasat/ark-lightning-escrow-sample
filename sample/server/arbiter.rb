@@ -123,14 +123,15 @@ def release_plan_for(trade)
 
   pending_offchain, vtxos_data, any_recoverable =
     CLIENT.get_escrow_vtxo_status(trade[:id], trade[:contract])
+  spendable_vtxos = CLIENT.find_spendable_escrow_vtxos(trade[:contract])
   use_refresh = !pending_offchain && any_recoverable
 
-  escrow_amount = if vtxos_data.empty?
-    nil
-  elsif use_refresh
+  escrow_amount = if use_refresh
     vtxos_data.sum { |v| Integer(v[1]) }
+  elsif spendable_vtxos.empty?
+    nil
   else
-    Integer(vtxos_data[0][1])
+    Integer(spendable_vtxos[0][1])
   end
 
   bob_amount, effective_fee_outputs, discarded_fee_outputs = if escrow_amount
@@ -139,9 +140,23 @@ def release_plan_for(trade)
     [nil, [], []]
   end
 
+  escrow_vtxos = spendable_vtxos.map do |outpoint, amount|
+    releasable, effective_fees, discarded_fees = CLIENT.quote_release(Integer(amount), compute_fee_outputs, false)
+    {
+      outpoint: outpoint,
+      amount: Integer(amount),
+      releasable_amount: releasable,
+      effective_fee_outputs: effective_fees,
+      discarded_fee_outputs: discarded_fees,
+    }
+  end
+
   {
     pending_offchain: pending_offchain,
     vtxos_data: vtxos_data,
+    spendable_vtxos: spendable_vtxos,
+    escrow_vtxos: escrow_vtxos,
+    selected_escrow_outpoint: spendable_vtxos.dig(0, 0),
     any_recoverable: any_recoverable,
     mode: use_refresh ? "refresh" : "offchain",
     escrow_amount: escrow_amount,
@@ -212,6 +227,8 @@ get "/trades/:id" do
     amount: trade[:escrow_amount],
     releasable_amount: release_plan&.dig(:releasable_amount),
     release_mode: release_plan&.dig(:mode),
+    escrow_vtxos: release_plan&.dig(:escrow_vtxos),
+    selected_escrow_outpoint: release_plan&.dig(:selected_escrow_outpoint),
     escrow_outpoint: trade[:escrow_outpoint],
     release_txid: trade[:release_txid],
   )
@@ -319,6 +336,7 @@ post "/trades/:id/release" do
 
   body = JSON.parse(request.body.read)
   bob_dest = body["bob_dest_address"]
+  requested_outpoint = body["escrow_outpoint"]
   halt 400, json(error: "missing bob_dest_address") unless bob_dest
 
   fee_outputs = compute_fee_outputs
@@ -342,19 +360,26 @@ post "/trades/:id/release" do
     )
   end
 
-  if release_plan[:mode] == "refresh"
-    halt 409, json(error: "escrow requires refresh before release", release_mode: "refresh")
-  end
-
   halt 404, json(error: "no escrow VTXOs found") if vtxos_data.empty?
 
-  trade[:escrow_outpoint] = vtxos_data[0][0]
-  trade[:escrow_amount] = vtxos_data[0][1]
+  spendable_vtxos = release_plan[:spendable_vtxos]
+  selected_vtxo = if requested_outpoint
+    spendable_vtxos.find { |outpoint, _amount| outpoint == requested_outpoint }
+  else
+    if release_plan[:mode] == "refresh"
+      halt 409, json(error: "escrow requires refresh before release", release_mode: "refresh")
+    end
+    spendable_vtxos[0]
+  end
 
-  ark_tx_b64, checkpoint_txs_b64 = CLIENT.build_release(
+  halt 404, json(error: "selected spendable escrow VTXO not found") unless selected_vtxo
+
+  trade[:escrow_outpoint] = selected_vtxo[0]
+  trade[:escrow_amount] = selected_vtxo[1]
+
+  ark_tx_b64, checkpoint_txs_b64 = CLIENT.build_release_for_outpoint(
     trade[:contract],
     trade[:escrow_outpoint],
-    trade[:escrow_amount],
     bob_dest,
     fee_outputs,
     "buyer_arbiter",
