@@ -66,12 +66,18 @@ function classifyInput(raw: string): LnInput | null {
 /** Build SDK swap options from classified input. */
 function toSwapOptions(
   input: LnInput,
-  amountSats: number,
-): { lightningInvoice?: string; lightningAddress?: string; amountSats?: number } {
+  sourceAmountSats: number,
+  targetAmountSats: number,
+): {
+  lightningInvoice?: string;
+  lightningAddress?: string;
+  sourceAmountSats?: number;
+  targetAmountSats?: number;
+} {
   if (input.type === "bolt11") {
-    return { lightningInvoice: input.invoice };
+    return { lightningInvoice: input.invoice, targetAmountSats };
   }
-  return { lightningAddress: input.address, amountSats };
+  return { lightningAddress: input.address, sourceAmountSats };
 }
 
 function toRetryOptions(
@@ -253,7 +259,12 @@ async function showClaimForm(tradeId: string, bobSk: string) {
     try {
       validateBolt11Amount(parsed, targetAmount);
       const refreshBeforeClaim = ($("refresh-before-claim") as HTMLInputElement).checked;
-      await doClaim(tradeId, bobSk, toSwapOptions(parsed, targetAmount), refreshBeforeClaim);
+      await doClaim(
+        tradeId,
+        bobSk,
+        toSwapOptions(parsed, sourceAmount, targetAmount),
+        refreshBeforeClaim,
+      );
     } catch (e: any) {
       show("claim-err", e.message);
       ($("btn-claim") as HTMLButtonElement).disabled = false;
@@ -264,7 +275,12 @@ async function showClaimForm(tradeId: string, bobSk: string) {
 async function doClaim(
   tradeId: string,
   bobSk: string,
-  swapOptions: { lightningInvoice?: string; lightningAddress?: string; amountSats?: number },
+  swapOptions: {
+    lightningInvoice?: string;
+    lightningAddress?: string;
+    sourceAmountSats?: number;
+    targetAmountSats?: number;
+  },
   refreshBeforeClaim: boolean,
 ) {
   show("claim-err", "");

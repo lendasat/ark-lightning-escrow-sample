@@ -67,7 +67,7 @@ async function main() {
 
       const lsClient = await buildLendaswapClient();
       const swap = await lsClient.createLightningToArkadeSwap({
-        satsReceive: amount,
+        targetAmountSats: amount,
         targetAddress: trade.escrow_address,
       });
 
