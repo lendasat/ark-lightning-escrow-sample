@@ -22,7 +22,7 @@ import {
 import {
   signEscrowArkTx,
   signEscrowCheckpoints,
-} from "@lendasat/lendaswap-sdk-pure";
+} from "@satora/swap";
 import { hex } from "@scure/base";
 
 const ARBITER_URL = process.env.ARBITER_URL ?? "http://localhost:4567";

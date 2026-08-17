@@ -9,7 +9,7 @@ Built as a showcase for escrow-style bitcoin↔ERC20 trades.
 This sample uses two external SDKs:
 
 - **[ark-escrow](https://github.com/lendasat/ark-escrow)** — Rust crate + Ruby FFI for escrow contract, tx building, signing, and Arkade gRPC client
-- **[@lendasat/lendaswap-sdk-pure](https://github.com/lendasat/lendaswap-sdk/tree/feat/ark-escrow/ts-pure-sdk)** — TS SDK for Lightning swaps + escrow signing helpers
+- **[@satora/swap](https://github.com/satoraHQ/satora-sdk/tree/master/ts-sdk/packages/swap)** — TS SDK for Lightning swaps + escrow signing helpers
 
 ## Components
 

@@ -23,7 +23,7 @@ _`ark-escrow` now covers this._
 - After the refreshed escrow VTXO is spendable again, run the normal offchain release/refund flow.
 - It's just another mode of *spending* in Arkade.
 
-_`ark-escrow` + `@lendasat/lendaswap-sdk-pure` now cover this._
+_`ark-escrow` + `@satora/swap` now cover this._
 
 ## Boltz fails to pay exit Lightning invoice
 

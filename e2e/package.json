@@ -6,8 +6,8 @@
     "test": "tsx test.ts"
   },
   "dependencies": {
-    "@arkade-os/sdk": "^0.4.6",
-    "@lendasat/lendaswap-sdk-pure": "github:lendasat/lendaswap-sdk#feat/ark-escrow&path:ts-pure-sdk",
+    "@arkade-os/sdk": "^0.4.62",
+    "@satora/swap": "^1.2.0",
     "@scure/base": "^2.0.0"
   },
   "devDependencies": {

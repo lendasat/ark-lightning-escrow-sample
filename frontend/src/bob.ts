@@ -19,7 +19,7 @@ import {
   Client,
   InMemorySwapStorage,
   InMemoryWalletStorage,
-} from "@lendasat/lendaswap-sdk-pure";
+} from "@satora/swap";
 import { decode as decodeBolt11 } from "light-bolt11-decoder";
 import "./style.css";
 

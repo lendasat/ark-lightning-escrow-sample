@@ -17,7 +17,7 @@ import {
   Client,
   InMemorySwapStorage,
   InMemoryWalletStorage,
-} from "@lendasat/lendaswap-sdk-pure";
+} from "@satora/swap";
 import QRCode from "qrcode";
 import "./style.css";
 
