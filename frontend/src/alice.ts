@@ -83,7 +83,12 @@ async function main() {
         targetAddress: trade.escrow_address,
       });
 
-      const invoice = swap.response.boltz_invoice;
+      const invoice =
+        (swap.response as any).bolt11_invoice ??
+        (swap.response as any).boltz_invoice;
+      if (!invoice) {
+        throw new Error("Swap response did not include a Lightning invoice");
+      }
       const swapId = swap.response.id;
       updateRecovery(trade.trade_id, {
         aliceLendaswapMnemonic: lendaswapMnemonic,
