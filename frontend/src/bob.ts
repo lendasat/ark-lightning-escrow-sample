@@ -11,6 +11,9 @@ import {
   sleep,
   LENDASWAP_URL,
   ARKADE_URL,
+  updateRecovery,
+  recoveryButtonHtml,
+  attachRecoveryCopyButton,
 } from "./common";
 import {
   signEscrowArkTx,
@@ -163,10 +166,19 @@ async function main() {
 
     try {
       const trade = await getTrade(tradeId);
+      updateRecovery(tradeId, {
+        role: "bob",
+        bobPk,
+        tradeStatus: trade.status,
+        escrowAddress: trade.escrow_address,
+        escrowOutpoint: trade.escrow_outpoint,
+        escrowAmount: trade.amount,
+      });
       show(
         "step-1-body",
-        `<span class="info">✓ Joined trade ${tradeId.slice(0, 8)}…</span>`,
+        `<span class="info">✓ Joined trade ${tradeId.slice(0, 8)}…</span><br/>${recoveryButtonHtml("btn-copy-recovery-join")}`,
       );
+      attachRecoveryCopyButton("btn-copy-recovery-join", tradeId);
       waitForFunding(tradeId, bobSk);
     } catch (e: any) {
       show("join-err", e.message);
@@ -183,6 +195,14 @@ async function waitForFunding(tradeId: string, bobSk: string) {
   const fundedTrade = await getTrade(tradeId);
   const fundTxid = fundedTrade.escrow_outpoint?.split(":")[0];
   const txInfo = fundTxid ? ` — tx: ${txLink(fundTxid)}` : "";
+  updateRecovery(tradeId, {
+    tradeStatus: fundedTrade.status,
+    escrowAddress: fundedTrade.escrow_address,
+    escrowOutpoint: fundedTrade.escrow_outpoint,
+    escrowAmount: fundedTrade.amount,
+    releasableAmount: fundedTrade.releasable_amount,
+    releaseMode: fundedTrade.release_mode,
+  });
   show(
     "step-2-body",
     `<span class="info">✓ Escrow funded${txInfo}</span>
@@ -240,8 +260,11 @@ async function showClaimForm(tradeId: string, bobSk: string) {
        Lightning addresses resolve automatically.
      </p>
      <button id="btn-claim">Claim via Lightning →</button>
+     ${recoveryButtonHtml("btn-copy-recovery-claim")}
      <div id="claim-err" class="error"></div>`,
   );
+
+  attachRecoveryCopyButton("btn-copy-recovery-claim", tradeId);
 
   $("btn-claim").addEventListener("click", async () => {
     const raw = ($("ln-dest") as HTMLInputElement).value.trim();
@@ -292,9 +315,20 @@ async function doClaim(
   // 2. Create Arkade→Lightning swap to get a VHTLC destination.
   showProgress("Creating Lightning swap...");
   const lsClient = await buildLendaswapClient();
+  const lendaswapMnemonic = lsClient.getMnemonic();
   const swap = await lsClient.createArkadeToLightningSwap(swapOptions);
   const vhtlcAddress = swap.response.arkade_vhtlc_address;
   const swapId = swap.response.id;
+  updateRecovery(tradeId, {
+    bobLendaswapMnemonic: lendaswapMnemonic,
+    bobSwap: {
+      direction: "arkade_to_lightning",
+      swapId,
+      swapOptions,
+      vhtlcAddress,
+      response: swap.response,
+    },
+  });
 
   const delayMs = releaseDelayMs();
   if (delayMs > 0) {
@@ -309,7 +343,7 @@ async function doClaim(
   try {
     arkTxid = await releaseEscrowToVhtlc(tradeId, vhtlcAddress, bobSk);
   } catch (e: any) {
-    await handleReleaseFailure(lsClient, swapId, e);
+    await handleReleaseFailure(lsClient, tradeId, swapId, e);
     return;
   }
 
@@ -319,11 +353,12 @@ async function doClaim(
   );
 
   // 4. Wait for lendaswap to complete the Lightning payment
-  await waitForLightningPayment(lsClient, swapId);
+  await waitForLightningPayment(lsClient, tradeId, swapId);
 }
 
 async function handleReleaseFailure(
   lsClient: Client,
+  tradeId: string,
   swapId: string,
   error: any,
 ) {
@@ -335,7 +370,7 @@ async function handleReleaseFailure(
   }
 
   if (isRetryableArkadeLightningFailure(swap.status)) {
-    await showArkadeLightningRetryForm(lsClient, swapId, swap.status);
+    await showArkadeLightningRetryForm(lsClient, tradeId, swapId, swap.status);
     return;
   }
 
@@ -352,6 +387,10 @@ async function refreshEscrowIfNeeded(
 
   showProgress("Preparing escrow refresh...");
   const refresh = await api("POST", `/trades/${tradeId}/refresh-bob`);
+  updateRecovery(tradeId, {
+    tradeStatus: "refreshing_escrow",
+    refreshStartedAt: new Date().toISOString(),
+  });
 
   showProgress("Signing refresh PSBTs...");
   const { signedIntentProof, signedForfeitPsbts } = await signEscrowRefresh(
@@ -366,6 +405,12 @@ async function refreshEscrowIfNeeded(
     signed_forfeit_psbts: signedForfeitPsbts,
   });
 
+  const refreshedTrade = await getTrade(tradeId);
+  updateRecovery(tradeId, {
+    tradeStatus: refreshedTrade.status,
+    escrowOutpoint: refreshedTrade.escrow_outpoint,
+    escrowAmount: refreshedTrade.amount,
+  });
   showProgress("Escrow refreshed.");
 }
 
@@ -377,6 +422,10 @@ async function releaseEscrowToVhtlc(
   showProgress("Requesting release from server...");
   const release = await api("POST", `/trades/${tradeId}/release`, {
     bob_dest_address: vhtlcAddress,
+  });
+  updateRecovery(tradeId, {
+    releaseStartedAt: new Date().toISOString(),
+    releaseDestination: vhtlcAddress,
   });
 
   if (release.mode !== "offchain") {
@@ -399,6 +448,7 @@ async function releaseEscrowToVhtlc(
     signed_checkpoints: signedCheckpoints,
   });
 
+  updateRecovery(tradeId, { releaseTxid: arkTxid, tradeStatus: "completed" });
   return arkTxid;
 }
 
@@ -410,7 +460,11 @@ function showProgress(text: string) {
   }
 }
 
-async function waitForLightningPayment(lsClient: Client, swapId: string) {
+async function waitForLightningPayment(
+  lsClient: Client,
+  tradeId: string,
+  swapId: string,
+) {
   setStep(5, STEPS);
   show("step-5-body", "Waiting for Lightning payment...");
 
@@ -430,13 +484,17 @@ async function waitForLightningPayment(lsClient: Client, swapId: string) {
       swap = await lsClient.getSwap(swapId, { updateStorage: true });
     } catch (e: any) {
       showRetryError("step-5-body", `Polling error: ${e.message}`, () =>
-        waitForLightningPayment(lsClient, swapId),
+        waitForLightningPayment(lsClient, tradeId, swapId),
       );
       return;
     }
     const status = swap.status;
 
     if (DONE.includes(status)) {
+      updateRecovery(tradeId, {
+        bobSwapStatus: status,
+        tradeStatus: "completed",
+      });
       show(
         "step-5-body",
         '<span class="info">✓ Lightning invoice paid! Trade complete.</span>',
@@ -446,14 +504,14 @@ async function waitForLightningPayment(lsClient: Client, swapId: string) {
 
     if (TERMINAL_FAIL.includes(status)) {
       if (isRetryableArkadeLightningFailure(status)) {
-        await showArkadeLightningRetryForm(lsClient, swapId, status);
+        await showArkadeLightningRetryForm(lsClient, tradeId, swapId, status);
         return;
       }
 
       showRetryError(
         "step-5-body",
         `Swap failed: ${status}`,
-        () => waitForLightningPayment(lsClient, swapId),
+        () => waitForLightningPayment(lsClient, tradeId, swapId),
       );
       return;
     }
@@ -475,6 +533,7 @@ function isRetryableArkadeLightningFailure(status: string): boolean {
 
 async function showArkadeLightningRetryForm(
   lsClient: Client,
+  tradeId: string,
   swapId: string,
   status: string,
 ) {
@@ -505,8 +564,11 @@ async function showArkadeLightningRetryForm(
      </label>
      <p style="margin-top:0.3rem; font-size:0.85rem; opacity:0.7">${invoiceHint}</p>
      <button id="btn-retry-ln">Retry Lightning payment</button>
+     ${recoveryButtonHtml("btn-copy-recovery-retry")}
      <div id="retry-ln-err" class="error"></div>`,
   );
+
+  attachRecoveryCopyButton("btn-copy-recovery-retry", tradeId);
 
   $("btn-retry-ln").addEventListener("click", async () => {
     const raw = ($("retry-ln-dest") as HTMLInputElement).value.trim();
@@ -528,11 +590,14 @@ async function showArkadeLightningRetryForm(
         swapId,
         toRetryOptions(parsed),
       );
+      updateRecovery(tradeId, {
+        retryResult: result,
+      });
       show(
         "retry-ln-err",
         `<span class="info">✓ Retried via refund tx ${txLink(result.refundTxId)}</span>`,
       );
-      await waitForLightningPayment(lsClient, result.newSwap.id);
+      await waitForLightningPayment(lsClient, tradeId, result.newSwap.id);
     } catch (e: any) {
       show("retry-ln-err", e.message);
       btn.disabled = false;

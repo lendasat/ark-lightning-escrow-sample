@@ -5,6 +5,66 @@ export const ARKADE_URL = import.meta.env.VITE_ARKADE_URL ?? "http://localhost:7
 export const NETWORK = import.meta.env.VITE_NETWORK ?? "regtest";
 export const IS_MAINNET = NETWORK === "bitcoin" || NETWORK === "mainnet";
 
+const RECOVERY_STORAGE_KEY = "escrow_recovery_records";
+
+export type RecoveryPatch = Record<string, unknown>;
+
+function readRecoveryRecords(): Record<string, RecoveryPatch> {
+  try {
+    return JSON.parse(localStorage.getItem(RECOVERY_STORAGE_KEY) ?? "{}");
+  } catch {
+    return {};
+  }
+}
+
+function recoveryJson(value: unknown): string {
+  return JSON.stringify(
+    value,
+    (_key, item) => (typeof item === "bigint" ? item.toString() : item),
+    2,
+  );
+}
+
+export function updateRecovery(tradeId: string, patch: RecoveryPatch) {
+  const records = readRecoveryRecords();
+  records[tradeId] = {
+    ...records[tradeId],
+    ...patch,
+    tradeId,
+    network: NETWORK,
+    arkadeUrl: ARKADE_URL,
+    lendaswapUrl: LENDASWAP_URL,
+    updatedAt: new Date().toISOString(),
+  };
+  localStorage.setItem(RECOVERY_STORAGE_KEY, recoveryJson(records));
+}
+
+export function recoveryButtonHtml(id: string): string {
+  return `<button id="${id}" class="secondary small" style="margin-top:0.6rem">Copy recovery JSON</button>`;
+}
+
+export function attachRecoveryCopyButton(id: string, tradeId: string) {
+  const button = document.getElementById(id);
+  if (!button) return;
+
+  button.addEventListener("click", () => {
+    const records = readRecoveryRecords();
+    const recovery = {
+      warning: "Sensitive recovery data. Keep private; it may include secret keys and swap wallet mnemonics.",
+      exportedAt: new Date().toISOString(),
+      trade: records[tradeId],
+      escrowKeys: {
+        aliceSk: localStorage.getItem("escrow_sk_alice"),
+        bobSk: localStorage.getItem("escrow_sk_bob"),
+      },
+    };
+
+    navigator.clipboard.writeText(recoveryJson(recovery));
+    button.textContent = "Recovery JSON copied";
+    setTimeout(() => (button.textContent = "Copy recovery JSON"), 1500);
+  });
+}
+
 /** Wrap text in an explorer link if VITE_EXPLORER_URL is set, otherwise return plain HTML. */
 export function explorerLink(path: string, label: string): string {
   if (!EXPLORER_URL) return `<code class="mono">${label}</code>`;

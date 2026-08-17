@@ -12,6 +12,9 @@ import {
   IS_MAINNET,
   LENDASWAP_URL,
   ARKADE_URL,
+  updateRecovery,
+  recoveryButtonHtml,
+  attachRecoveryCopyButton,
 } from "./common";
 import {
   Client,
@@ -60,12 +63,21 @@ async function main() {
         alice_pk: alicePk,
         bob_pk: bobPk,
       });
+      updateRecovery(trade.trade_id, {
+        role: "alice",
+        alicePk,
+        bobPk,
+        escrowAddress: trade.escrow_address,
+        requestedAmountSats: amount,
+        tradeStatus: trade.status,
+      });
 
       // Step 2: create Lightning→Arkade swap via lendaswap
       setStep(2, STEPS);
       show("step-2-body", "Initializing Lightning swap...");
 
       const lsClient = await buildLendaswapClient();
+      const lendaswapMnemonic = lsClient.getMnemonic();
       const swap = await lsClient.createLightningToArkadeSwap({
         targetAmountSats: amount,
         targetAddress: trade.escrow_address,
@@ -73,6 +85,17 @@ async function main() {
 
       const invoice = swap.response.boltz_invoice;
       const swapId = swap.response.id;
+      updateRecovery(trade.trade_id, {
+        aliceLendaswapMnemonic: lendaswapMnemonic,
+        aliceSwap: {
+          direction: "lightning_to_arkade",
+          swapId,
+          targetAmountSats: amount,
+          targetAddress: trade.escrow_address,
+          invoice,
+          response: swap.response,
+        },
+      });
 
       // Render invoice + QR code
       const qrDataUrl = await QRCode.toDataURL(invoice.toUpperCase(), {
@@ -91,7 +114,8 @@ async function main() {
          <p style="margin-top: 0.6rem">Escrow address: ${addressLink(trade.escrow_address)}</p>
          <p style="margin-top: 0.6rem">Trade ID (share with Bob):</p>
          <code class="mono">${trade.trade_id}</code>
-         <button id="btn-copy-id" class="secondary small" style="margin-left: 0.5rem">Copy</button>`,
+         <button id="btn-copy-id" class="secondary small" style="margin-left: 0.5rem">Copy</button>
+         <br/>${recoveryButtonHtml("btn-copy-recovery")}`,
       );
 
       $("btn-copy-invoice").addEventListener("click", () => {
@@ -108,6 +132,7 @@ async function main() {
         $("btn-copy-id").textContent = "Copied!";
         setTimeout(() => ($("btn-copy-id").textContent = "Copy"), 1500);
       });
+      attachRecoveryCopyButton("btn-copy-recovery", trade.trade_id);
 
       // Automatically wait for payment, claim, and confirm funding
       await waitForPaymentAndClaim(lsClient, swapId, trade.trade_id);
@@ -208,6 +233,9 @@ async function claimVhtlc(
 ) {
   show("step-3-body", "Claiming VHTLC to escrow address...");
   const claimResult = await lsClient.claim(swapId);
+  updateRecovery(tradeId, {
+    aliceClaimResult: claimResult,
+  });
   if (!claimResult.success) {
     showRetryError(
       "step-3-body",
@@ -230,6 +258,11 @@ async function confirmFunding(tradeId: string) {
     try {
       const funded = await api("POST", `/trades/${tradeId}/fund`);
       const trade = await getTrade(tradeId);
+      updateRecovery(tradeId, {
+        tradeStatus: trade.status,
+        escrowOutpoint: trade.escrow_outpoint,
+        escrowAmount: trade.amount,
+      });
       const fundTxid = trade.escrow_outpoint?.split(":")[0];
       const txInfo = fundTxid ? ` — tx: ${txLink(fundTxid)}` : "";
       show(
@@ -272,6 +305,7 @@ function showAttestForm(tradeId: string) {
     show("attest-err", "");
     try {
       await api("POST", `/trades/${tradeId}/attest`);
+      updateRecovery(tradeId, { tradeStatus: "attested" });
       show("step-4-body", '<span class="info">✓ Attested</span>');
       waitForCompletion(tradeId);
     } catch (e: any) {
@@ -290,6 +324,10 @@ async function waitForCompletion(tradeId: string) {
   });
 
   const finalTrade = await getTrade(tradeId);
+  updateRecovery(tradeId, {
+    tradeStatus: finalTrade.status,
+    releaseTxid: finalTrade.release_txid,
+  });
   const releaseTxInfo = finalTrade.release_txid
     ? `<br/>Release tx: ${txLink(finalTrade.release_txid)}`
     : "";
