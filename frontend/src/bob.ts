@@ -231,11 +231,14 @@ async function showClaimForm(tradeId: string, bobSk: string) {
 
   // Quote the swap to find the actual Lightning amount after Boltz fees.
   // releasable_amount is the SOURCE (what funds the VHTLC), not the target.
-  const quoteRes = await fetch(
-    `${LENDASWAP_URL}/quote?source_chain=Arkade&source_token=btc&target_chain=Lightning&target_token=btc&source_amount=${sourceAmount}`,
-  );
-  if (!quoteRes.ok) throw new Error(`Quote failed: ${quoteRes.status}`);
-  const quote = await quoteRes.json();
+  const lsClient = await buildLendaswapClient();
+  const quote = await lsClient.getQuote({
+    sourceChain: "Arkade",
+    sourceToken: "btc",
+    targetChain: "Lightning",
+    targetToken: "btc",
+    sourceAmount,
+  });
 
   const targetAmount = parseSats(quote.net_target_amount, "quote amount");
 
