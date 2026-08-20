@@ -12,8 +12,8 @@ importers:
         specifier: ^0.4.62
         version: 0.4.62
       '@satora/swap':
-        specifier: ^1.2.0
-        version: 1.2.0(typescript@5.9.3)
+        specifier: ^1.3.0
+        version: 1.3.0(typescript@5.9.3)
       '@scure/base':
         specifier: ^2.0.0
         version: 2.0.0
@@ -252,8 +252,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@lendasat/lendaswap-sdk-pure@2.0.0':
-    resolution: {integrity: sha512-JEEbLa8gICELd61JQHuQVRCInajf9RDz/xAvJX+wKFBMUGOH87Yc3/QAomolVy/Af23V6dCnHAhxI3gANEng2Q==}
+  '@lendasat/lendaswap-sdk-pure@2.1.0':
+    resolution: {integrity: sha512-/6elgZCMLk86OL2aACL4QQWCWsl8KWEXBO+4EUPuBIe9TnWlwr269n1o0tFFouLrrUBKR5x2yuae2+qnTbiK8w==}
     peerDependencies:
       '@circle-fin/adapter-viem-v2': ^1.8.0
       '@circle-fin/bridge-kit': ^1.8.0
@@ -303,8 +303,8 @@ packages:
   '@noble/secp256k1@3.0.0':
     resolution: {integrity: sha512-NJBaR352KyIvj3t6sgT/+7xrNyF9Xk9QlLSIqUGVUYlsnDTAUqY8LOmwpcgEx4AMJXRITQ5XEVHD+mMaPfr3mg==}
 
-  '@satora/swap@1.2.0':
-    resolution: {integrity: sha512-kCtYWDeSsGMiNXgZJxXdxYnmpLIHiLTCYQLeG0/E+HyW/ApbeT54qnJr9Wxax8Wenq4Ny6RZ6bcDYVsPXC6FcQ==}
+  '@satora/swap@1.3.0':
+    resolution: {integrity: sha512-UkKtkgOrK0/uugcLcu4qnVpRrOFpDoZUiisIva7KLrDqtW1NB5qXbrZ0/+6c0ST8rASMy6ZXRXTEkQmXrHNtaQ==}
 
   '@scure/base@1.2.6':
     resolution: {integrity: sha512-g/nm5FgUa//MCj1gV09zTJTaM6KBAHqLN907YVQqf7zC49+DcO4B1so4ZX07Ef10Twr6nuqYEH9GEggFXA4Fmg==}
@@ -718,7 +718,7 @@ snapshots:
   '@esbuild/win32-x64@0.27.3':
     optional: true
 
-  '@lendasat/lendaswap-sdk-pure@2.0.0(typescript@5.9.3)':
+  '@lendasat/lendaswap-sdk-pure@2.1.0(typescript@5.9.3)':
     dependencies:
       '@arkade-os/sdk': 0.4.62
       '@noble/curves': 2.3.0
@@ -776,10 +776,10 @@ snapshots:
 
   '@noble/secp256k1@3.0.0': {}
 
-  '@satora/swap@1.2.0(typescript@5.9.3)':
+  '@satora/swap@1.3.0(typescript@5.9.3)':
     dependencies:
       '@arkade-os/sdk': 0.4.62
-      '@lendasat/lendaswap-sdk-pure': 2.0.0(typescript@5.9.3)
+      '@lendasat/lendaswap-sdk-pure': 2.1.0(typescript@5.9.3)
       '@noble/hashes': 2.3.0
       '@scure/base': 2.0.0
       '@scure/btc-signer': 2.0.1

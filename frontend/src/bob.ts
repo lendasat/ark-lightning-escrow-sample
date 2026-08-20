@@ -20,6 +20,7 @@ import {
   signEscrowCheckpoints,
   signEscrowDelegate as signEscrowRefresh,
   Client,
+  type ArkadeToLightningSwapOptions,
   InMemorySwapStorage,
   InMemoryWalletStorage,
 } from "@satora/swap";
@@ -71,25 +72,11 @@ function toSwapOptions(
   input: LnInput,
   sourceAmountSats: number,
   targetAmountSats: number,
-): {
-  lightningInvoice?: string;
-  lightningAddress?: string;
-  sourceAmountSats?: number;
-  targetAmountSats?: number;
-} {
+): ArkadeToLightningSwapOptions {
   if (input.type === "bolt11") {
     return { lightningInvoice: input.invoice, targetAmountSats };
   }
   return { lightningAddress: input.address, sourceAmountSats };
-}
-
-function toRetryOptions(
-  input: LnInput,
-): { lightningInvoice?: string; lightningAddress?: string } {
-  if (input.type === "bolt11") {
-    return { lightningInvoice: input.invoice };
-  }
-  return { lightningAddress: input.address };
 }
 
 function parseSats(value: unknown, name: string): number {
@@ -301,12 +288,7 @@ async function showClaimForm(tradeId: string, bobSk: string) {
 async function doClaim(
   tradeId: string,
   bobSk: string,
-  swapOptions: {
-    lightningInvoice?: string;
-    lightningAddress?: string;
-    sourceAmountSats?: number;
-    targetAmountSats?: number;
-  },
+  swapOptions: ArkadeToLightningSwapOptions,
   refreshBeforeClaim: boolean,
 ) {
   show("claim-err", "");
@@ -547,7 +529,13 @@ async function showArkadeLightningRetryForm(
     const oldSwap = await lsClient.getSwap(swapId, { updateStorage: true });
     const sourceAmount = Number((oldSwap as any).boltz_amount_sats);
     if (Number.isFinite(sourceAmount) && sourceAmount > 0) {
-      const quote = await lsClient.getArkadeToLightningQuote(sourceAmount);
+      const quote = await lsClient.getQuote({
+        sourceChain: "Arkade",
+        sourceToken: "btc",
+        targetChain: "Lightning",
+        targetToken: "btc",
+        sourceAmount,
+      });
       expectedAmount = Number(quote.net_target_amount);
     }
   } catch {
@@ -589,18 +577,9 @@ async function showArkadeLightningRetryForm(
     show("retry-ln-err", "Retrying swap...");
 
     try {
-      const result = await lsClient.retryArkadeToLightningSwap(
-        swapId,
-        toRetryOptions(parsed),
+      throw new Error(
+        "Arkade→Lightning retry is not exposed by @satora/swap 1.3.0 yet. Please refund the failed swap from your recovery data or try again after the VHTLC locktime expires.",
       );
-      updateRecovery(tradeId, {
-        retryResult: result,
-      });
-      show(
-        "retry-ln-err",
-        `<span class="info">✓ Retried via refund tx ${txLink(result.refundTxId)}</span>`,
-      );
-      await waitForLightningPayment(lsClient, tradeId, result.newSwap.id);
     } catch (e: any) {
       show("retry-ln-err", e.message);
       btn.disabled = false;
