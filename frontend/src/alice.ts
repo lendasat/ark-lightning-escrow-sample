@@ -5,6 +5,8 @@ import {
   show,
   pollStatus,
   sleep,
+  describeSwapActions,
+  waitForSwapAction,
   getOrCreateKeypair,
   getTrade,
   addressLink,
@@ -33,6 +35,7 @@ async function buildLendaswapClient(): Promise<Client> {
     .withArkadeServerUrl(ARKADE_URL)
     .withSignerStorage(new InMemoryWalletStorage())
     .withSwapStorage(new InMemorySwapStorage())
+    .withAutoClaim()
     .build();
 }
 
@@ -166,8 +169,8 @@ function showRetryError(
 }
 
 /**
- * Poll the swap until the server has funded the VHTLC,
- * then auto-claim it to the escrow address and confirm on-chain.
+ * Let the SDK monitor the Lightning→Arkade swap and auto-claim the VHTLC,
+ * then confirm the resulting escrow VTXO with the arbiter.
  */
 async function waitForPaymentAndClaim(
   lsClient: Client,
@@ -177,85 +180,44 @@ async function waitForPaymentAndClaim(
   setStep(3, STEPS);
   show("step-3-body", "Waiting for Lightning payment...");
 
-  // Phase 1: poll swap status until serverfunded (VHTLC created on Arkade)
-  const FUNDED_STATUSES = ["serverfunded", "clientredeemed", "serverredeemed"];
-  const TERMINAL_FAIL = [
-    "expired",
-    "clientrefunded",
-    "clientfundedserverrefunded",
-    "clientinvalidfunded",
-  ];
-
-  for (let i = 0; ; i++) {
-    let swap;
-    try {
-      swap = await lsClient.getSwap(swapId, { updateStorage: true });
-    } catch (e: any) {
-      showRetryError("step-3-body", `Polling error: ${e.message}`, () =>
-        waitForPaymentAndClaim(lsClient, swapId, tradeId),
-      );
-      return;
-    }
-    const status = swap.status;
-
-    if (FUNDED_STATUSES.includes(status)) {
-      show(
-        "step-3-body",
-        '<span class="info">✓ Lightning payment received</span>',
-      );
-      break;
-    }
-
-    if (TERMINAL_FAIL.includes(status)) {
-      showRetryError(
-        "step-3-body",
-        `Swap failed: ${status}`,
-        () => {
-          // Go back to step 1 so Alice can create a new trade
-          setStep(1, STEPS);
-          ($("btn-create") as HTMLButtonElement).disabled = false;
-        },
-      );
-      return;
-    }
-
-    const label =
-      status === "clientfunded" || status === "clientfundingseen"
-        ? "Payment detected, waiting for confirmation..."
-        : `Waiting for Lightning payment... (attempt ${i + 1})`;
-    show("step-3-body", label);
-    await sleep(3000);
-  }
-
-  // Phase 2: claim the VHTLC → funds land at escrow address
-  await claimVhtlc(lsClient, swapId, tradeId);
-}
-
-async function claimVhtlc(
-  lsClient: Client,
-  swapId: string,
-  tradeId: string,
-) {
-  show("step-3-body", "Claiming VHTLC to escrow address...");
-  const claimResult = await lsClient.claim(swapId);
-  updateRecovery(tradeId, {
-    aliceClaimResult: claimResult,
-  });
-  if (!claimResult.success) {
-    showRetryError(
-      "step-3-body",
-      `Claim failed: ${claimResult.message}`,
-      () => claimVhtlc(lsClient, swapId, tradeId),
+  try {
+    const finalActions = await waitForSwapAction(
+      lsClient,
+      swapId,
+      (actions) => {
+        updateRecovery(tradeId, {
+          aliceSwapAction: actions.recommended,
+        });
+        show("step-3-body", describeSwapActions(actions));
+      },
+      (actions) => actions.recommended === "none",
     );
-    return;
-  }
-  show(
-    "step-3-body",
-    '<span class="info">✓ VHTLC claimed, waiting for escrow VTXO...</span>',
-  );
 
-  // Phase 3: confirm the VTXO appeared at the escrow address (existing server flow)
-  await confirmFunding(tradeId);
+    const outcome = finalActions.actions.find((action) => action.id === "none")
+      ?.outcome;
+    if (outcome !== "completed") {
+      showRetryError("step-3-body", `Swap ended: ${outcome ?? "unknown"}`, () => {
+        setStep(1, STEPS);
+        ($("btn-create") as HTMLButtonElement).disabled = false;
+      });
+      return;
+    }
+
+    updateRecovery(tradeId, {
+      aliceSwapAction: "none",
+      aliceSwapOutcome: outcome,
+    });
+    show(
+      "step-3-body",
+      '<span class="info">✓ VHTLC claimed, waiting for escrow VTXO...</span>',
+    );
+
+    await confirmFunding(tradeId);
+  } catch (e: any) {
+    showRetryError("step-3-body", `Swap monitor error: ${e.message}`, () =>
+      waitForPaymentAndClaim(lsClient, swapId, tradeId),
+    );
+  }
 }
 
 async function confirmFunding(tradeId: string) {
