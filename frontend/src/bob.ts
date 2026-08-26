@@ -9,6 +9,8 @@ import {
   addressLink,
   txLink,
   sleep,
+  describeSwapActions,
+  waitForSwapAction,
   LENDASWAP_URL,
   ARKADE_URL,
   updateRecovery,
@@ -35,6 +37,7 @@ async function buildLendaswapClient(): Promise<Client> {
     .withArkadeServerUrl(ARKADE_URL)
     .withSignerStorage(new InMemoryWalletStorage())
     .withSwapStorage(new InMemorySwapStorage())
+    .withAutoClaim()
     .build();
 }
 
@@ -453,62 +456,56 @@ async function waitForLightningPayment(
   setStep(5, STEPS);
   show("step-5-body", "Waiting for Lightning payment...");
 
-  const DONE = ["serverredeemed"];
-  const TERMINAL_FAIL = [
-    "expired",
-    "serverwontfund",
-    "clientrefunded",
-    "clientfundedserverrefunded",
-    "clientrefundedserverrefunded",
-    "clientinvalidfunded",
-  ];
+  try {
+    const finalActions = await waitForSwapAction(
+      lsClient,
+      swapId,
+      (actions) => {
+        updateRecovery(tradeId, {
+          bobSwapAction: actions.recommended,
+        });
 
-  for (let i = 0; ; i++) {
-    let swap;
-    try {
-      swap = await lsClient.getSwap(swapId, { updateStorage: true });
-    } catch (e: any) {
-      showRetryError("step-5-body", `Polling error: ${e.message}`, () =>
+        if (actions.recommended === "refund_unilateral") {
+          showArkadeLightningRetryForm(
+            lsClient,
+            tradeId,
+            swapId,
+            "refund_available",
+          );
+          return;
+        }
+
+        show("step-5-body", describeSwapActions(actions));
+      },
+      (actions) =>
+        actions.recommended === "none" ||
+        actions.recommended === "refund_unilateral",
+    );
+
+    if (finalActions.recommended === "refund_unilateral") return;
+
+    const outcome = finalActions.actions.find((action) => action.id === "none")
+      ?.outcome;
+    if (outcome !== "completed") {
+      showRetryError("step-5-body", `Swap ended: ${outcome ?? "unknown"}`, () =>
         waitForLightningPayment(lsClient, tradeId, swapId),
       );
       return;
     }
-    const status = swap.status;
 
-    if (DONE.includes(status)) {
-      updateRecovery(tradeId, {
-        bobSwapStatus: status,
-        tradeStatus: "completed",
-      });
-      show(
-        "step-5-body",
-        '<span class="info">✓ Lightning invoice paid! Trade complete.</span>',
-      );
-      return;
-    }
-
-    if (TERMINAL_FAIL.includes(status)) {
-      if (isRetryableArkadeLightningFailure(status)) {
-        await showArkadeLightningRetryForm(lsClient, tradeId, swapId, status);
-        return;
-      }
-
-      showRetryError(
-        "step-5-body",
-        `Swap failed: ${status}`,
-        () => waitForLightningPayment(lsClient, tradeId, swapId),
-      );
-      return;
-    }
-
-    const label =
-      status === "clientfunded"
-        ? "VHTLC funded, server processing..."
-        : status === "clientredeemed" || status === "serverfunded"
-          ? "Lightning payment in progress..."
-          : `Waiting for swap to complete... (${status})`;
-    show("step-5-body", label);
-    await sleep(3000);
+    updateRecovery(tradeId, {
+      bobSwapAction: "none",
+      bobSwapOutcome: outcome,
+      tradeStatus: "completed",
+    });
+    show(
+      "step-5-body",
+      '<span class="info">✓ Lightning invoice paid! Trade complete.</span>',
+    );
+  } catch (e: any) {
+    showRetryError("step-5-body", `Swap monitor error: ${e.message}`, () =>
+      waitForLightningPayment(lsClient, tradeId, swapId),
+    );
   }
 }
 

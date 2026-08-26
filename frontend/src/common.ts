@@ -1,3 +1,5 @@
+import type { Client, SwapActions } from "@satora/swap";
+
 const ARBITER_URL = import.meta.env.VITE_ARBITER_URL ?? "http://localhost:4567";
 const EXPLORER_URL = import.meta.env.VITE_EXPLORER_URL ?? "";
 export const LENDASWAP_URL = import.meta.env.VITE_LENDASWAP_URL ?? "http://localhost:7071";
@@ -133,6 +135,66 @@ export async function pollStatus(
 
 export function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+export function describeSwapActions(actions: SwapActions): string {
+  const recommended = actions.actions.find((action) => action.recommended);
+  const waitingOn = recommended && "waitingOn" in recommended ? recommended.waitingOn : undefined;
+
+  switch (actions.recommended) {
+    case "claim":
+      return "Swap is funded; claiming automatically...";
+    case "wait":
+      return waitingOn === "client_payment"
+        ? "Waiting for Lightning payment..."
+        : waitingOn === "server_funding"
+          ? "Payment detected, waiting for swap funding..."
+          : waitingOn === "claim_confirmation"
+            ? "Claim submitted, waiting for confirmation..."
+            : waitingOn === "refund_timelock"
+              ? "Waiting for refund timelock..."
+              : "Waiting for swap to progress...";
+    case "fund":
+      return "Waiting for funding...";
+    case "refund_unilateral":
+      return "Swap needs a refund.";
+    case "none":
+      return recommended?.reason ?? "Swap finished.";
+    default:
+      return recommended?.reason ?? "Waiting for swap to progress...";
+  }
+}
+
+export async function waitForSwapAction(
+  client: Client,
+  swapId: string,
+  onActions: (actions: SwapActions) => void,
+  isDone: (actions: SwapActions) => boolean,
+): Promise<SwapActions> {
+  await client.startTracking();
+
+  return new Promise((resolve, reject) => {
+    let unsubscribe = () => {};
+    let unsubscribeAfterSubscribe = false;
+
+    const finish = (actions: SwapActions) => {
+      if (unsubscribeAfterSubscribe) return;
+      unsubscribeAfterSubscribe = true;
+      unsubscribe();
+      resolve(actions);
+    };
+
+    try {
+      unsubscribe = client.subscribeToActions((id, actions) => {
+        if (id !== swapId) return;
+        onActions(actions);
+        if (isDone(actions)) finish(actions);
+      });
+      if (unsubscribeAfterSubscribe) unsubscribe();
+    } catch (error) {
+      reject(error);
+    }
+  });
 }
 
 /** Derive the x-only public key from a secret key hex string. */
